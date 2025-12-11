@@ -1,4 +1,3 @@
-# Load your environment (adjust based on your cluster)
 #!/bin/bash
 #SBATCH --job-name=bluesky_baselines
 #SBATCH --output=logs/slurm/slurm_%A_%a.out
