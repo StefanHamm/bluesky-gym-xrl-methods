@@ -36,7 +36,8 @@ def make_env():
     Utility function for multiprocessed env.
     """
     global env_counter
-    os.makedirs(args.workdir, exist_ok=True)
+    if args.workdir:
+        os.makedirs(args.workdir, exist_ok=True)
     env = gym.make(env_name, 
             render_mode=None, workdir=args.workdir)
     # Set a different seed for each created environment.
