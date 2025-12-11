@@ -53,7 +53,7 @@ if __name__ == "__main__":
             vec_env_cls=SubprocVecEnv)
     model = algorithm("MultiInputPolicy", env, verbose=1,learning_rate=3e-4)
     if TRAIN:
-        model.learn(total_timesteps=2e6, callback=csv_logger_callback)
+        model.learn(total_timesteps=1e3, callback=csv_logger_callback,progress_bar=True)
         model.save(f"models/{env_name}/{env_name}_{str(algorithm.__name__)}/model_mp")
         del model
     env.close()
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     
     # Test the trained model
     env = gym.make(env_name, render_mode="human")
-    model = algorithm.load(f"models/{env_name}/{env_name}_{str(algorithm.__name__)}/model_mp", env=env)
+    model = algorithm.load(f"models/{env_name}/{env_name}_{str(algorithm.__name__)}/model_mp", env=env,device="cuda")
     for i in range(EVAL_EPISODES):
         done = truncated = False
         obs, info = env.reset()

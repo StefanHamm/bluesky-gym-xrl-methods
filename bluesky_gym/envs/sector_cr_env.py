@@ -42,7 +42,7 @@ class SectorCREnv(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
     
-    def __init__(self, render_mode=None, ac_density_mode="normal"):
+    def __init__(self, render_mode=None, ac_density_mode="normal",workdir=None):
         self.window_width = 512
         self.window_height = 512
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -71,7 +71,7 @@ class SectorCREnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True,workdir=workdir)
 
         # initialize dummy screen and set correct sim speed
         bs.scr = ScreenDummy()
@@ -340,6 +340,9 @@ class SectorCREnv(gym.Env):
         return reward
         
     def _render_frame(self):
+        
+        
+        
         if self.window is None and self.render_mode == "human":
             pygame.init()
             pygame.display.init()
@@ -347,6 +350,12 @@ class SectorCREnv(gym.Env):
 
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                if self.window is not None:
+                    pygame.display.quit()
+                self.close()
 
         max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.poly_points for point2 in self.poly_points)*NM2KM
         
@@ -437,8 +446,8 @@ class SectorCREnv(gym.Env):
                 radius = INTRUSION_DISTANCE*NM2KM*px_per_km,
                 width = 2
             )
-
         self.window.blit(canvas, canvas.get_rect())
+        
         pygame.display.update()
         self.clock.tick(self.metadata["render_fps"])
     

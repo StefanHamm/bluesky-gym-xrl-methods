@@ -17,6 +17,7 @@ import argparse
 import sys
 import bluesky_gym
 import bluesky_gym.envs
+import os
 
 from bluesky_gym.utils import logger
 
@@ -35,8 +36,9 @@ def make_env():
     Utility function for multiprocessed env.
     """
     global env_counter
+    os.makedirs(args.workdir, exist_ok=True)
     env = gym.make(env_name, 
-            render_mode=None)
+            render_mode=None, workdir=args.workdir)
     # Set a different seed for each created environment.
     env.reset(seed=env_counter)
     env_counter +=1 
@@ -62,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("--algo_idx", type=int, default=0, help="Index of algorithm in algorithms list")
     parser.add_argument("--num_cpu", type=int, default=2, help="Number of CPUs to use")
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
+    parser.add_argument("--workdir", type=str, default=None, help="Working directory for BlueSky sim")
     args = parser.parse_args()
 
     # 2. Select specific config

@@ -42,7 +42,7 @@ class PlanWaypointEnv(gym.Env):
     # for BlueSkyGym probably only implement 1 for now together with None, which is default
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None,workdir=None):
         self.window_width = 512
         self.window_height = 512
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -63,7 +63,7 @@ class PlanWaypointEnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True,workdir=workdir)
 
         # initialize dummy screen and set correct sim speed
         bs.scr = ScreenDummy()

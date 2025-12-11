@@ -1,0 +1,1 @@
+# this scripts creates plots for each environment and compares the baselines algorithms reward, intrusion etc.

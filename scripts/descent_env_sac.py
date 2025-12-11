@@ -3,6 +3,10 @@ This file trains a model using the Descent-V0 example environment
 """
 import gymnasium as gym
 from stable_baselines3 import SAC
+import torch
+# Check GPU availability
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 import numpy as np
 
@@ -26,10 +30,10 @@ if __name__ == "__main__":
     obs, info = env.reset()
 
     # Create the model
-    model = SAC("MultiInputPolicy", env, verbose=1,learning_rate=1e-3)
+    model = SAC("MultiInputPolicy", env, verbose=2,learning_rate=1e-3)
 
     # Train the model
     if TRAIN:
-        model.learn(total_timesteps=2048, callback=csv_logger_callback)
+        model.learn(total_timesteps=2048,progress_bar=True,callback=csv_logger_callback)
         model.save("models/DescentEnv-v0_sac/model")  
     env.close()
