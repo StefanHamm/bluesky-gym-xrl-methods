@@ -9,7 +9,7 @@
 
 
 
-module load miniconda3/latest
+source ~/miniconda3/etc/profile.d/conda.sh
 conda activate blueskyGym
 
 TOTAL_TIMESTEPS=2048
