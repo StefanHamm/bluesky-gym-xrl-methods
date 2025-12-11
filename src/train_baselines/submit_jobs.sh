@@ -10,7 +10,7 @@
 
 
 
-module load anaconda3
+module load miniconda3/latest
 conda activate blueskyGym
 
 TOTAL_TIMESTEPS=2048
