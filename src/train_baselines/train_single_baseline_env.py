@@ -38,8 +38,12 @@ def make_env():
     global env_counter
     if args.workdir:
         os.makedirs(args.workdir, exist_ok=True)
-    env = gym.make(env_name, 
-            render_mode=None, workdir=args.workdir)
+    # ...existing code...
+    if env_name == "StaticObstacleEnv-v0":
+        env = gym.make(env_name, render_mode=None)
+    else:
+        env = gym.make(env_name, render_mode=None, workdir=args.workdir)
+# ...existing code...
     # Set a different seed for each created environment.
     env.reset(seed=env_counter)
     env_counter +=1 
