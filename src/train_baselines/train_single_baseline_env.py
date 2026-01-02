@@ -66,6 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_cpu", type=int, default=2, help="Number of CPUs to use")
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
     parser.add_argument("--workdir", type=str, default=None, help="Working directory for BlueSky sim")
+    parser.add_argument("--make_vec_env", action='store_true', help="Use vectorized environment")
     args = parser.parse_args()
 
     # 2. Select specific config
@@ -87,7 +88,12 @@ if __name__ == "__main__":
     env_counter = 0 
     
     if TRAIN:
-        env = make_vec_env(make_env, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
+        if args.make_vec_env:
+            print("Using vectorized environment")
+            env = make_vec_env(make_env, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
+        else:
+            print("Using single environment")
+            env = make_env()
         
         if algorithm == RecurrentPPO:
             policy_type = "MultiInputLstmPolicy"
