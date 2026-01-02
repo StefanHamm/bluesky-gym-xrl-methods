@@ -1,11 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=bluesky_baselines
+#SBATCH --job-name=blueskyBaselines
 #SBATCH --output=logs/slurm/slurm_%A_%a.out
 #SBATCH --error=logs/slurm/slurm_%A_%a.err
-#SBATCH --time=04:00:00
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
+#SBATCH --time=10:00:00
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=32G
 #SBATCH --array=0-19
+##SBATCH --gres=gpu:1
+##SBATCH --partition=gpu
 
 
 
