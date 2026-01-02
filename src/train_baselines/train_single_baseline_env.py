@@ -100,8 +100,8 @@ if __name__ == "__main__":
         else:
             policy_type = "MultiInputPolicy"
         
-        model = algorithm(policy_type, env, verbose=1, learning_rate=3e-4)
-        model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=True)
+        model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4)
+        model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=False)
         model.save(f"models/{env_name}/{env_name}_{str(algorithm.__name__)}/baseline_model_mp")
         
         env.close()
