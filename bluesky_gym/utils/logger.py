@@ -15,7 +15,7 @@ class CSVLoggerCallback(BaseCallback):
     def _on_step(self) -> bool:
         if not self.initialized:
             # Initialize headers based on keys in the infos dictionary
-            self.info_keys = self.locals['infos'][0].keys()
+            self.info_keys = [k for k in self.locals['infos'][0].keys() if k != 'terminal_observation']
             self.headers.extend(self.info_keys)
             with open(self.log_file, mode='w', newline='') as f:
                 writer = csv.writer(f)

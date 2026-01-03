@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=blueskyBaselines
-#SBATCH --output=logs/slurm/slurm_%A_%a.out
-#SBATCH --error=logs/slurm/slurm_%A_%a.err
+#SBATCH --output=logs/%A/slurm/slurm_%A_%a.out
+#SBATCH --error=logs/%A/slurm/slurm_%A_%a.err
 #SBATCH --time=10:00:00
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=32G
@@ -24,9 +24,13 @@ echo "Running Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Environment Index: $ENV_IDX"
 echo "Algorithm Index: $ALGO_IDX"
 
+JOBDIR="logs/${SLURM_JOB_ID}"
+mkdir -p $JOBDIR
+
+
 #making workdir for each job
 WORKDIR="workdirs/job_${SLURM_ARRAY_TASK_ID}_env${ENV_IDX}_algo${ALGO_IDX}"
 mkdir -p $WORKDIR
 
 # Run the python script with the specific indices
-python src/train_baselines/train_single_baseline_env.py --env_idx $ENV_IDX --algo_idx $ALGO_IDX --num_cpu $SLURM_CPUS_PER_TASK --total_timesteps $TOTAL_TIMESTEPS --workdir $WORKDIR 
+python src/train_baselines/train_single_baseline_env.py --env_idx $ENV_IDX --algo_idx $ALGO_IDX --num_cpu $SLURM_CPUS_PER_TASK --total_timesteps $TOTAL_TIMESTEPS --workdir $WORKDIR --jobdir $JOBDIR --jobid $SLURM_JOB_ID
