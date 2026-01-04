@@ -7,4 +7,5 @@ dependencies:
   - pip:
       - sb3-contrib
       - scienceplots
+      - stable-baselines3[extra]
 
