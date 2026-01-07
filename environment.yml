@@ -8,4 +8,4 @@ dependencies:
       - sb3-contrib
       - scienceplots
       - stable-baselines3[extra]
-
+      - shap

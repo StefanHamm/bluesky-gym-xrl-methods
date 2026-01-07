@@ -29,7 +29,7 @@ log_dir = f'./logs/{env_name}/'
 file_name = f'{env_name}_{str(algorithm.__name__)}.csv'
 csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
 
-TRAIN = True
+TRAIN = False
 EVAL_EPISODES = 10
 
 # Initialise the environment counter
@@ -68,6 +68,7 @@ if __name__ == "__main__":
         tot_rew = 0
         while not (done or truncated):
             action, _states = model.predict(obs, deterministic=True)
+            print(action)
             obs, reward, done, truncated, info = env.step(action[()])
             tot_rew += reward
         print(tot_rew)

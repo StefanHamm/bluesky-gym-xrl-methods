@@ -13,6 +13,7 @@ from stable_baselines3 import SAC,PPO,TD3,DDPG,A2C
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_with_safe_state import SafeObservationWrapper
 import argparse
 import sys
 import bluesky_gym
@@ -27,6 +28,7 @@ bluesky_gym.register_envs()
 
 all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
+wrappers = [SafeObservationWrapper]
 num_cpu = 2
 
 
@@ -71,13 +73,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_cpu", type=int, default=2, help="Number of CPUs to use")
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
     parser.add_argument("--workdir", type=str, default=None, help="Working directory for BlueSky sim")
-    parser.add_argument("--make_vec_env", action='store_true', help="Use vectorized environment")
     parser.add_argument("--jobdir", type=str, default=None, help="Job directory for logs")
     parser.add_argument("--jobid", type=str, default=None, help="Job identifier")
+    parser.add_argument("--wrapper_idx", type=int, default=0, help="Index of wrapper in wrappers list")
     args = parser.parse_args()
 
     # 2. Select specific config
     try:
+        wrapper_name = wrappers[args.wrapper_idx].__name__
         env_name = all_envs[args.env_idx]
         algorithm = algorithms[args.algo_idx]
     except IndexError:
@@ -87,36 +90,27 @@ if __name__ == "__main__":
     print(f"--- Starting Job: {algorithm.__name__} on {env_name} ---")
 
 
-    # create a folder called vecEnvLogs and store the logs there if it is false store it in singleEnvLogs
-    if args.make_vec_env:
-        suffix = "vecEnvLogs"
-    else:
-        suffix = "singleEnv"
 
     # 3. Run Training (No loops here anymore!)
-    log_dir = f'./{args.jobdir}/{env_name}/'
-    file_name = f'{env_name}_{str(algorithm.__name__)}_{suffix}_baseline.csv'
+    log_dir = f'./{args.jobdir}/{env_name}_{wrapper_name}/'
+    file_name = f'{env_name}_{str(algorithm.__name__)}_baseline.csv'
     csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
     
     # Reset global counter for this specific process
     env_counter = 0 
     
     if TRAIN:
-        if args.make_vec_env:
-            print("Using vectorized environment")
-            env = make_vec_env(make_env, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
-        else:
-            print("Using single environment")
-            env = make_env()
+        env = make_env()
+        safeEnv = SafeObservationWrapper(env, probability=0.1, safe_intruder_probability=0.5)
         
         if algorithm == RecurrentPPO:
             policy_type = "MultiInputLstmPolicy"
         else:
             policy_type = "MultiInputPolicy"
         
-        model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4)
+        model = algorithm(policy_type, safeEnv, verbose=0, learning_rate=3e-4)
         model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=False)
-        model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
+        model.save(f"models/{args.jobid}/{env_name}_{wrapper_name}/{env_name}_{str(algorithm.__name__)}_baseline_model_mp")
         
         env.close()
 
