@@ -45,7 +45,7 @@ class SafeObservationWrapper(gym.Wrapper):
         self.safe_episode = False
         self.safe_intruder_indices = []
         randval = random.random()
-        if randval < self.unwrapped.probability:
+        if randval < self.safe_episode:
             self.safe_episode = True
             
         for i in range(NUM_INTRUDERS):

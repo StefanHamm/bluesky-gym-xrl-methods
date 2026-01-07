@@ -5,7 +5,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
-#SBATCH --array=4
+#SBATCH --array=0-4
 #SBATCH --partition=sunnycove
 # #SBATCH --gres=gpu:1
 # #SBATCH --partition=gpu
@@ -17,7 +17,7 @@ conda activate blueskyGym
 
 TOTAL_TIMESTEPS=2000000
 
-ENV_IDX=2
+ENV_IDX=1
 ALGO_IDX=$((SLURM_ARRAY_TASK_ID % 5))
 WRAPPER_IDX=0
 
