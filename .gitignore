@@ -6,3 +6,4 @@ images/
 logs/
 models/
 dist/
+download_job_artifacts.ps1

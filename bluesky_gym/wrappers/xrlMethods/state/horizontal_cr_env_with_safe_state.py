@@ -20,6 +20,7 @@ class SafeObservationWrapper(gym.Wrapper):
     def __init__(self, env, probability=0.1, safe_intruder_probability=0.5):
         super().__init__(env)
         self.safe_episode = False
+        self.safe_episode_probability = probability
         self.safe_intruder_probability = safe_intruder_probability
         self.safe_intruder_indices = []
         
@@ -45,7 +46,7 @@ class SafeObservationWrapper(gym.Wrapper):
         self.safe_episode = False
         self.safe_intruder_indices = []
         randval = random.random()
-        if randval < self.safe_episode:
+        if randval < self.safe_episode_probability:
             self.safe_episode = True
             
         for i in range(NUM_INTRUDERS):

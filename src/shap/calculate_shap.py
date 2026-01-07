@@ -5,7 +5,7 @@ to the corresponding file as indicated in the workshop.
 """
 
 import gymnasium as gym
-from stable_baselines3 import SAC,TD3
+from stable_baselines3 import SAC,TD3,DDPG
 import bluesky_gym
 import bluesky_gym.envs
 import shap
@@ -30,7 +30,7 @@ env_name = 'HorizontalCREnv-v0'
 # model.save("models/SAC")
 # env.close()
 
-DEBUG = True
+DEBUG = False
 
 SAFE_VALS = {
             "dist": 10.0,
@@ -130,7 +130,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG)
-    model = SAC.load("models/4675598/HorizontalCREnv-v0/HorizontalCREnv-v0_SAC_singleEnv_baseline_model_mp.zip", env=saliencyEnv,device='cpu')
+    modelpath = "models/4679510/HorizontalCREnv-v0_SafeObservationWrapper/HorizontalCREnv-v0_DDPG_baseline_model_mp.zip"
+    #model = SAC.load("models/4675598/HorizontalCREnv-v0/HorizontalCREnv-v0_SAC_singleEnv_baseline_model_mp.zip", env=saliencyEnv,device='cpu')
+    model = DDPG.load(modelpath)
     n_eps = 10
     for i in range(n_eps):
         done = truncated = False
