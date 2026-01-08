@@ -1,12 +1,12 @@
 import gymnasium as gym
 import numpy as np
 import pygame
-from bluesky_gym.envs.horizontal_cr_env import ACTION_FREQUENCY,NUM_INTRUDERS,NM2KM,INTRUSION_DISTANCE,DISTANCE_MARGIN,AC_SPD
+from bluesky_gym.envs.horizontal_cr_env import D_HEADING,ACTION_FREQUENCY,NUM_INTRUDERS,NM2KM,INTRUSION_DISTANCE,DISTANCE_MARGIN,AC_SPD,WAYPOINT_DISTANCE_MAX
 import bluesky as bs
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
-
-
+import os
+import imageio
 
 
 # This wrapper creates saliency maps from the current observation
@@ -18,17 +18,36 @@ import bluesky_gym.envs.common.functions as fn
 
 class SaliencyHorizontalControl(gym.Wrapper):
     
-    def __init__(self, env,safe_vals=None,debug=False):
+    def __init__(self, env,safe_vals=None,debug=False,export_gifs_path=None):
         super().__init__(env)
         #self.unwrapped.window_size=(1024,1024)
         self.last_action = None  
         self.DEBUG = debug
         if safe_vals is not None:
             self.safe_vals = safe_vals
+        # create working directory for gif creation
+        self.export_gifs_path = export_gifs_path
+        if self.export_gifs_path is not None:
+            os.makedirs(self.export_gifs_path, exist_ok=True)
+        # inside create two folder: frames and gifs
+        if self.export_gifs_path is not None:
+            self.frames_path = os.path.join(self.export_gifs_path, "frames")
+            self.gifs_path = os.path.join(self.export_gifs_path, "gifs")
+            os.makedirs(self.frames_path, exist_ok=True)
+            os.makedirs(self.gifs_path, exist_ok=True)
+        self.episode_counter = 0
+        self.step_counter = 0
             
             
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        self.episode_counter += 1
+        self.step_counter = 0
+        
+        if self.export_gifs_path is not None:
+            # create folder inside frames for this episode
+            self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
+            os.makedirs(self.episode_frames_path, exist_ok=True)
         
         bs.traf.reset()
 
@@ -48,7 +67,8 @@ class SaliencyHorizontalControl(gym.Wrapper):
 
         return observation, info
             
-    def step(self, action, shap_values=None):
+    def step(self, action, shap_values=None,examplePlane = None):
+        self.step_counter += 1
         
         self.unwrapped._get_action(action)
         self.last_action = action  # Store the last action
@@ -58,7 +78,19 @@ class SaliencyHorizontalControl(gym.Wrapper):
             bs.sim.step()
             if self.render_mode == "human":
                 observation = self.unwrapped._get_obs()
-                self._render_frame(shap_values=shap_values)
+
+                # In debug mode, we update the examplePlane with the latest observation
+                # to ensure the ghost intruder stays synchronized with the simulation step.
+                if self.DEBUG and examplePlane is not None:
+                    examplePlane = {
+                        "dist": observation["intruder_distance"][0],
+                        "cos": observation["cos_difference_pos"][0],
+                        "sin": observation["sin_difference_pos"][0],
+                        "dx": observation["x_difference_speed"][0],
+                        "dy": observation["y_difference_speed"][0]
+                    }
+
+                self._render_frame(shap_values=shap_values,examplePlane=examplePlane)
 
         observation = self.unwrapped._get_obs()
         reward, terminated = self.unwrapped._get_reward()
@@ -70,10 +102,15 @@ class SaliencyHorizontalControl(gym.Wrapper):
             for acid in bs.traf.id:
                 idx = bs.traf.id2idx(acid)
                 bs.traf.delete(idx)
+            if self.export_gifs_path is not None:
+                # export gif from saved frames
+                gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
+                images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
+                imageio.mimsave(gif_filename, images, fps=10)
 
         return observation, reward, terminated, False, info
     
-    def _render_frame(self,shap_values=None):
+    def _render_frame(self,shap_values=None,examplePlane=None):
         if self.unwrapped.window is None and self.render_mode == "human":
             pygame.init()
             pygame.display.init()
@@ -118,8 +155,29 @@ class SaliencyHorizontalControl(gym.Wrapper):
             width = 1
         )
 
-        if self.DEBUG:
+        # Plot additionally the intended_heading (baseline heading)
+        if shap_values is not None:
+
+                
+            base_val  = shap_values.base_values[0][0]
+
+            # intended_heading = current_heading + baseline_turn
+            intended_heading = bs.traf.hdg[ac_idx] + base_val * D_HEADING
             
+            heading_end_x_intend = ((np.sin(np.deg2rad(intended_heading)) * heading_length)/max_distance)*self.unwrapped.window_width
+            heading_end_y_intend = ((np.cos(np.deg2rad(intended_heading)) * heading_length)/max_distance)*self.unwrapped.window_width
+            
+            # Draw baseline/intended heading as a Green line
+            pygame.draw.line(canvas,
+                (0,255,0),
+                (self.unwrapped.window_width/2,self.unwrapped.window_height/2),
+                ((self.unwrapped.window_width/2)+heading_end_x_intend,(self.unwrapped.window_height/2)-heading_end_y_intend),
+                width = 2
+            )
+
+        if self.DEBUG:
+            if examplePlane is not None:
+                self.safe_vals = examplePlane
             #plot one intrude (now plotted relative to ownship heading)
             color = (0,255,0)
 
@@ -129,28 +187,63 @@ class SaliencyHorizontalControl(gym.Wrapper):
             # convert to global bearing from ownship to intruder
             int_qdr = (bs.traf.hdg[ac_idx] - rel_bearing_deg) % 360
 
-            # position in km and then screen coords
-            dist_km = self.safe_vals["dist"] * NM2KM
-            x_pos = (self.unwrapped.window_width/2) + (np.sin(np.deg2rad(int_qdr)) * dist_km / max_distance) * self.unwrapped.window_width
-            y_pos = (self.unwrapped.window_height/2) - (np.cos(np.deg2rad(int_qdr)) * dist_km / max_distance) * self.unwrapped.window_height
+            # CORRECT DISTANCE CALCULATION:
+            # safe_vals["dist"] is normalized (0-1), so we multiply by MAX to get KM
+            dist_km = self.safe_vals["dist"] * WAYPOINT_DISTANCE_MAX
+            
+            # Use consistent scale for X and Y to prevent distortion
+            screen_scale = self.unwrapped.window_height 
+
+            x_pos = (self.unwrapped.window_width/2) + (np.sin(np.deg2rad(int_qdr)) * dist_km / max_distance) * screen_scale
+            y_pos = (self.unwrapped.window_height/2) - (np.cos(np.deg2rad(int_qdr)) * dist_km / max_distance) * screen_scale
 
             # compute intruder heading: rotate local (dx,dy) by ownship heading
             heading_mag = np.sqrt(self.safe_vals["dx"]**2 + self.safe_vals["dy"]**2)
             if heading_mag > 1e-8:
-                local_heading_rad = np.arctan2(self.safe_vals["dx"], self.safe_vals["dy"])  # matches sin/cos->angle convention used for drawing
-                local_heading_deg = np.rad2deg(local_heading_rad)
-                heading_global_deg = (bs.traf.hdg[ac_idx] + local_heading_deg) % 360
+                # REVERSE TRANSFORM SPEED DIFFERENCE TO HEADING
+                # x_dif = - cos(heading_diff) * gs_int
+                # y_dif = gs_own - sin(heading_diff) * gs_int
+                
+                # denormalize
+                x_dif = self.safe_vals["dx"] * AC_SPD
+                y_dif = self.safe_vals["dy"] * AC_SPD
+                gs_own = bs.traf.gs[ac_idx]
+                
+                # tan(heading_diff) = sin(heading_diff) / cos(heading_diff)
+                # sin(heading_diff) ~ (gs_own - y_dif)
+                # cos(heading_diff) ~ -x_dif
+                
+                heading_diff_rad = np.arctan2(gs_own - y_dif, -x_dif)
+                heading_diff_deg = np.rad2deg(heading_diff_rad)
+                
+                # heading_diff = hdg_own - hdg_int
+                # hdg_int = hdg_own - heading_diff
+                heading_global_deg = (bs.traf.hdg[ac_idx] - heading_diff_deg) % 360
 
                 heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
                 heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
+
+                # draw centered line for the aircraft
+                pygame.draw.line(canvas,
+                    color,
+                    (x_pos - heading_end_x/2, y_pos + heading_end_y/2),
+                    (x_pos + heading_end_x/2, y_pos - heading_end_y/2),
+                    width = 4
+                )
+
+                # draw heading line
+                heading_length = 15
+                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
+                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
 
                 pygame.draw.line(canvas,
                     color,
                     (x_pos,y_pos),
                     ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
-                    width = 4
+                    width = 1
                 )
-
+            
+            # Draw circle at the calculated position (center of the aircraft)
             pygame.draw.circle(
                 canvas, 
                 color,
@@ -272,7 +365,14 @@ class SaliencyHorizontalControl(gym.Wrapper):
             text_rect = action_taken_text.get_rect()
             x = int(self.unwrapped.window_width / 2 - text_rect.width / 2)
             y = int(self.unwrapped.window_height / 2 - 30 - text_rect.height)
-            canvas.blit(action_taken_text, (x, y))
+            canvas.blit(action_taken_text, (legend_x, legend_y - 70))
+            #canvas.blit(action_taken_text, (x, y))
+            
+            legend_text = font.render("Green line: Heading w/o other aircrafts", True, (0,100,0))
+            canvas.blit(legend_text, (legend_x, legend_y - 90))
+
+            intended_heading = self.unwrapped.ac_hdg + shap_values.base_values[0][0] * D_HEADING
+            
 
         # Draw color scale: left (blue) to right (red)
         for i in range(legend_width):
@@ -290,11 +390,18 @@ class SaliencyHorizontalControl(gym.Wrapper):
         # Add text labels
         left_text = font.render('Left', True, (0,0,0))
         right_text = font.render('Right', True, (0,0,0))
-        center_text = font.render('No Influence', True, (0,0,0))
         canvas.blit(left_text, (legend_x - 10, legend_y + legend_height + 5))
         canvas.blit(right_text, (legend_x + legend_width - 50, legend_y + legend_height + 5))
-        canvas.blit(center_text, (legend_x + legend_width//2 - 50, legend_y + legend_height + 5))
+
 
         self.unwrapped.window.blit(canvas, canvas.get_rect())
         pygame.display.update()
         self.unwrapped.clock.tick(self.metadata["render_fps"])
+        
+        if self.export_gifs_path is not None:
+            # save frame to episode frames folder use the current step count as filename
+            frame_filename = os.path.join(self.episode_frames_path, f"frame_{self.step_counter}.png")
+            try:
+                pygame.image.save(canvas, frame_filename)
+            except pygame.error as e:
+                print(f"Error saving frame {self.step_counter} of episode {self.episode_counter}: {e}")

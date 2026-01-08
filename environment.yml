@@ -9,3 +9,4 @@ dependencies:
       - scienceplots
       - stable-baselines3[extra]
       - shap
+      - imageio
