@@ -23,17 +23,7 @@ bluesky_gym.register_envs()
 
 # Initialize the environment and logger
 env_name = 'HorizontalCREnv-v0'
-#env = gym.make(env_name, render_mode=None)
-# file_name = 'my_first_bsg_experiment.csv'
-# logger = logger.CSVLoggerCallback('logs/', file_name)
 
-#Train a model for 'n' timesteps
-# model = SAC('MultiInputPolicy', env=env, verbose=1)
-# model.learn(total_timesteps=2e6, callback=logger,progress_bar=True)
-# model.save("models/SAC")
-# env.close()
-
-DEBUG = False
 
 def runPermutationExplainer(model, observation,backgroundData,n_samples=50):
     # runs shap permutation explainer on the given observation
@@ -99,15 +89,21 @@ if __name__ == "__main__":
     
     #JOBID = "4684614"
     JOBID = "4675598"
-    SEED = 52
+    SEED = 42
     #plots/jobid/gifs/
+    DEBUG = False
+    RUN_BASELINE_ACTION = False
 
-    gifFolder = f"./plots/{JOBID}/episode_gifs/"
+    if DEBUG:
+        gifFolder = f"./plots/{JOBID}/shapBackgroundDataDebug/"
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    else:
+        gifFolder = f"./plots/{JOBID}/shapBackgroundData/"
     
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     env.reset(seed=SEED)
-    saliencyEnv = SaliencyHorizontalControl(env,None,None,export_gifs_path=gifFolder)
+    saliencyEnv = SaliencyHorizontalControl(env,None,None,export_gifs_path=gifFolder,fps=5)
     
     
     backgroundDataPath = os.path.join(os.path.dirname(__file__), "intruder_background.npy")
@@ -117,7 +113,7 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
-    n_eps = 10
+    n_eps = 6
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
@@ -132,10 +128,20 @@ if __name__ == "__main__":
             
             if i % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
-                shap_values = runPermutationExplainer(model, obs,backgroundData)
+                shap_values = runPermutationExplainer(model, obs,backgroundData,n_samples=300)
                 logging.info(f"shap_values: {shap_values}")
                 
-            obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
+            
+            if DEBUG and RUN_BASELINE_ACTION:
+                action = shap_values.base_values[0]
+                logging.info(f"Overriding action with baseline action: {action}")
+                
+                obs, reward, done, truncated, info = saliencyEnv.step(action,shap_values)
+            else:
+                obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
+            
+            
+            
             
     env.close()
 

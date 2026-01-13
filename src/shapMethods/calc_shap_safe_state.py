@@ -20,15 +20,7 @@ bluesky_gym.register_envs()
 
 # Initialize the environment and logger
 env_name = 'HorizontalCREnv-v0'
-#env = gym.make(env_name, render_mode=None)
-# file_name = 'my_first_bsg_experiment.csv'
-# logger = logger.CSVLoggerCallback('logs/', file_name)
 
-#Train a model for 'n' timesteps
-# model = SAC('MultiInputPolicy', env=env, verbose=1)
-# model.learn(total_timesteps=2e6, callback=logger,progress_bar=True)
-# model.save("models/SAC")
-# env.close()
 
 DEBUG = False
 
@@ -127,17 +119,17 @@ if __name__ == "__main__":
     
     #JOBID = "4684614"
     JOBID = "4675598"
-    
+    SEED = 42
     #plots/jobid/gifs/
     if DEBUG:
-        gifFolder = f"./plots/{JOBID}/episode_gifs_debug/"
+        gifFolder = f"./plots/{JOBID}/shapSafeStateDebug/"
     else:
-        gifFolder = f"./plots/{JOBID}/episode_gifs/"
+        gifFolder = f"./plots/{JOBID}/shapSafeState/"
     
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
-    
-    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder)
+    env.reset(seed=SEED)
+    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5)
     
     
     
@@ -146,7 +138,7 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
-    n_eps = 10
+    n_eps = 6
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()

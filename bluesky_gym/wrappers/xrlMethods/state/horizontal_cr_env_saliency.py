@@ -18,8 +18,9 @@ import imageio
 
 class SaliencyHorizontalControl(gym.Wrapper):
     
-    def __init__(self, env,safe_vals=None,debug=False,export_gifs_path=None):
+    def __init__(self, env,safe_vals=None,debug=False,export_gifs_path=None,fps=5):
         super().__init__(env)
+        self.fps = fps
         #self.unwrapped.window_size=(1024,1024)
         self.last_action = None  
         self.DEBUG = debug
@@ -107,7 +108,7 @@ class SaliencyHorizontalControl(gym.Wrapper):
                 # export gif from saved frames
                 gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
                 images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
-                imageio.mimsave(gif_filename, images, fps=5)
+                imageio.mimsave(gif_filename, images, fps=self.fps)
 
         return observation, reward, terminated, False, info
     
