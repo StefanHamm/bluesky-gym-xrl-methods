@@ -154,12 +154,12 @@ class StaticObstacleEnv(gym.Env):
     def _generate_polygon(self, centre):
         poly_area = self.np_random.integers(OBSTACLE_AREA_RANGE[0]*2, OBSTACLE_AREA_RANGE[1])
         R = np.sqrt(poly_area/ np.pi)
-        p = [fn.random_point_on_circle(R) for _ in range(3)] # 3 random points to start building the polygon
+        p = [fn.random_point_on_circle(R,self.np_random) for _ in range(3)] # 3 random points to start building the polygon
         p = fn.sort_points_clockwise(p)
         p_area = fn.polygon_area(p)
         
         while p_area < OBSTACLE_AREA_RANGE[0]:
-            p.append(fn.random_point_on_circle(R))
+            p.append(fn.random_point_on_circle(R,self.np_random))
             p = fn.sort_points_clockwise(p)
             p_area = fn.polygon_area(p)
         
