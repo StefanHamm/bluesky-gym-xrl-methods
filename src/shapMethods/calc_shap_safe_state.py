@@ -5,7 +5,7 @@ to the corresponding file as indicated in the workshop.
 """
 
 import gymnasium as gym
-from stable_baselines3 import SAC,TD3,DDPG
+from stable_baselines3 import SAC,TD3,DDPG,PPO
 import bluesky_gym
 import bluesky_gym.envs
 import shap
@@ -33,17 +33,18 @@ env_name = 'HorizontalCREnv-v0'
 DEBUG = False
 
 SAFE_VALS = {
-            "dist": 10.0,
+            "dist": 0.5,
             "cos": -1.0,  # Behind
             "sin": 0.0,
-            "dx": 0.0,    # Flying away
-            "dy": -1.0
+            "dx": 1.0,    # Flying away
+            "dy": 1.0
         }
 
 def DEBUG_baselineObservation(observation):
     obs_copy = copy.deepcopy(observation)
     
     mean = False
+    logging.info(f"Original Observation: {obs_copy}")
     
     if mean:
         for k in obs_copy:
@@ -84,38 +85,34 @@ def runPermutationExplainer(model, observation):
         # [[0, 1, 2],
         #  [-1, 1, 2],  <-- Intruder 0 is masked here
         #  [0, -1, 2]]
+        total_evals = len(X_batch)
         
-        predictions = []
+        # Batch for efficiency
+        # 1. Create a large batch of observations by replicating the original one
+        obs_batch = {k: np.tile(v, (total_evals, 1)) for k, v in observation.items()}
         
-        # Safe/Behind values
-        safe_vals = {
-            "dist": 10.0,
-            "cos": -1.0,  # Behind
-            "sin": 0.0,
-            "dx": 0,    # Flying away
-            "dy": -1.0
-        }
+       
         logging.debug(f"X_batch: {X_batch}")
-        for row_indices in X_batch:
-            # Create a fresh observation from the original
-            obs_copy = copy.deepcopy(observation)
+        
+        # 2. Vectorized or efficient update of the batch
+        # Iterate over each mask (row in X_batch) and update corresponding obs in obs_batch
+        for i, row_indices in enumerate(X_batch):
+            # row_indices is the mask for the i-th observation in the batch
+            # Find indices where intruder should be masked (value is 0/False)
+            masked_indices = np.where(row_indices==0)[0]
             
-            # Loop through the indices to see which are "Real" and which are "Masked" (-1)
-            for i, idx_val in enumerate(row_indices):
-                if idx_val == 0:
-                    # Apply your masking logic here!
-                    obs_copy["intruder_distance"][i] = SAFE_VALS["dist"]
-                    obs_copy["cos_difference_pos"][i] = SAFE_VALS["cos"]
-                    obs_copy["sin_difference_pos"][i] = SAFE_VALS["sin"]
-                    obs_copy["x_difference_speed"][i] = SAFE_VALS["dx"]
-                    obs_copy["y_difference_speed"][i] = SAFE_VALS["dy"]
+            if len(masked_indices) > 0:
+                obs_batch["intruder_distance"][i, masked_indices] = SAFE_VALS["dist"]
+                obs_batch["cos_difference_pos"][i, masked_indices] = SAFE_VALS["cos"]
+                obs_batch["sin_difference_pos"][i, masked_indices] = SAFE_VALS["sin"]
+                obs_batch["x_difference_speed"][i, masked_indices] = SAFE_VALS["dx"]
+                obs_batch["y_difference_speed"][i, masked_indices] = SAFE_VALS["dy"]
             
-            # Predict
-            # SB3 models return tuple (action, state), take [0]
-            pred, _ = model.predict(obs_copy, deterministic=True)
-            predictions.append(pred)
+        # 3. Batch Predict
+        # Single call for all permutations
+        pred, _ = model.predict(obs_batch, deterministic=True)
             
-        return np.array(predictions)
+        return np.array(pred)
 
     # 4. RUN
     # Note: We pass the WRAPPER as the model, and cheat_masker as the masker
@@ -127,12 +124,28 @@ def runPermutationExplainer(model, observation):
     
 
 if __name__ == "__main__":
+    
+    #JOBID = "4684614"
+    JOBID = "4675598"
+    
+    #plots/jobid/gifs/
+    if DEBUG:
+        gifFolder = f"./plots/{JOBID}/episode_gifs_debug/"
+    else:
+        gifFolder = f"./plots/{JOBID}/episode_gifs/"
+    
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
-    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG)
-    modelpath = "models/4679510/HorizontalCREnv-v0_SafeObservationWrapper/HorizontalCREnv-v0_DDPG_baseline_model_mp.zip"
-    #model = SAC.load("models/4675598/HorizontalCREnv-v0/HorizontalCREnv-v0_SAC_singleEnv_baseline_model_mp.zip", env=saliencyEnv,device='cpu')
-    model = DDPG.load(modelpath)
+    
+    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder)
+    
+    
+    
+    #modelpath = f"models/{JOBID}/HorizontalCREnv-v0_SafeObservationWrapper/HorizontalCREnv-v0_SAC_baseline_model_mp.zip"
+    modelpath = f"models/{JOBID}/HorizontalCREnv-v0/HorizontalCREnv-v0_SAC_singleEnv_baseline_model_mp.zip"
+    #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
+    model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
+    #model = DDPG.load(modelpath)
     n_eps = 10
     for i in range(n_eps):
         done = truncated = False

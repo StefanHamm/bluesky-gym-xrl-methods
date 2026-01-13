@@ -41,6 +41,7 @@ class SaliencyHorizontalControl(gym.Wrapper):
             
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        
         self.episode_counter += 1
         self.step_counter = 0
         
@@ -106,7 +107,7 @@ class SaliencyHorizontalControl(gym.Wrapper):
                 # export gif from saved frames
                 gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
                 images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
-                imageio.mimsave(gif_filename, images, fps=10)
+                imageio.mimsave(gif_filename, images, fps=5)
 
         return observation, reward, terminated, False, info
     
@@ -272,10 +273,13 @@ class SaliencyHorizontalControl(gym.Wrapper):
             if shap_values is not None:
                 if i < len(shap_values.values[0]):
                     saliency = shap_values.values[0][i]
-                    if saliency > 0:
-                        color = (min(255, int(255 * saliency)), 0, 0)
+                    val = max(-1, min(1, saliency))
+                    if val < 0:
+                        t = -val
+                        color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
                     else:
-                        color = (0, 0, min(255, int(-255 * saliency)))
+                        t = val
+                        color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
                 else:
                     color = (80,80,80)
             else:
@@ -378,10 +382,13 @@ class SaliencyHorizontalControl(gym.Wrapper):
         for i in range(legend_width):
             # Scale from -1 (left) to +1 (right)
             value = (i / legend_width) * 2 - 1
-            if value < 0:
-                color = (0, 0, min(255, int(-255 * value)))  # Blue for left
+            val = max(-1, min(1, value))
+            if val < 0:
+                t = -val
+                color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
             else:
-                color = (min(255, int(255 * value)), 0, 0)   # Red for right
+                t = val
+                color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
             pygame.draw.line(canvas, color, (legend_x + i, legend_y), (legend_x + i, legend_y + legend_height), 1)
 
         # Draw border
