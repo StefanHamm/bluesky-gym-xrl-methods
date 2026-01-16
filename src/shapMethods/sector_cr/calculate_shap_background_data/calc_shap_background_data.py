@@ -128,13 +128,15 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
-    n_eps = 6
+    n_eps = 15
+    for i in range(7):
+        env.reset()
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
         step = 0
         
-        while not (done or truncated) and step < 30:
+        while not (done or truncated) and step < 200:
             step+=1
             
 
@@ -144,7 +146,7 @@ if __name__ == "__main__":
             
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
-                shap_values = runPermutationExplainer(model, obs,backgroundData,n_samples=500,action_index=0)
+                shap_values = runPermutationExplainer(model, obs,backgroundData,n_samples=100)
                 logging.info(f"shap_values: {shap_values}")
                 
             
@@ -155,6 +157,8 @@ if __name__ == "__main__":
                 obs, reward, done, truncated, info = saliencyEnv.step(action,shap_values)
             else:
                 obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
+        if truncated:
+            print(f"Episode {i+1} truncated after {step} steps.")
             
             
             

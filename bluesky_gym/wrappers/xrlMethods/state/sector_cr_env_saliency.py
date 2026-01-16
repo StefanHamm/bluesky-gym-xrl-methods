@@ -143,7 +143,7 @@ class SaliencySectorControl(gym.Wrapper):
         
         # Draw airspace
         airspace_color = (255, 0, 0)
-        coords = [((self.unwrapped.window_width/2)+point[0]*NM2KM*px_per_km, (self.unwrapped.window_height/2)-point[1]*NM2KM*px_per_km) for point in self.unwrapped.poly_points]
+        coords = [((self.unwrapped.window_width/2)+point[1]*NM2KM*px_per_km, (self.unwrapped.window_height/2)-point[0]*NM2KM*px_per_km) for point in self.unwrapped.poly_points]
         pygame.draw.polygon(canvas, airspace_color, coords, width=2)
 
         # draw ownship
@@ -265,7 +265,7 @@ class SaliencySectorControl(gym.Wrapper):
             
             # Draw circle at the calculated position (center of the aircraft)
             pygame.draw.circle(
-                canvas, 
+                canvas,
                 color,
                 (x_pos,y_pos),
                 radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.unwrapped.window_width,
