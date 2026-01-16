@@ -185,8 +185,8 @@ class SaliencySectorControl(gym.Wrapper):
             # intended_heading = current_heading + baseline_turn
             intended_heading = bs.traf.hdg[ac_idx] + base_val * D_HEADING
             
-            heading_end_x = np.cos(np.deg2rad(intended_heading)) * ac_length
-            heading_end_y = np.sin(np.deg2rad(intended_heading)) * ac_length
+            heading_end_y = np.cos(np.deg2rad(intended_heading)) * ac_length
+            heading_end_x = np.sin(np.deg2rad(intended_heading)) * ac_length
             # Draw baseline/intended heading as a Green line
             pygame.draw.line(canvas,
                 (0,255,0),
@@ -240,8 +240,8 @@ class SaliencySectorControl(gym.Wrapper):
                 # hdg_int = hdg_own - heading_diff
                 heading_global_deg = (bs.traf.hdg[ac_idx] - heading_diff_deg) % 360
 
-                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
-                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
+                heading_end_y = ((np.sin(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
+                heading_end_x = ((np.cos(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
 
                 # draw centered line for the aircraft
                 pygame.draw.line(canvas,
@@ -253,8 +253,8 @@ class SaliencySectorControl(gym.Wrapper):
 
                 # draw heading line
                 heading_length = 15
-                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
-                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
+                heading_end_y = ((np.sin(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
+                heading_end_x = ((np.cos(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
 
                 pygame.draw.line(canvas,
                     color,
