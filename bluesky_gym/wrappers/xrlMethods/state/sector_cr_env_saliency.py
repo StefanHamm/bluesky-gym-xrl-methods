@@ -1,12 +1,12 @@
 import gymnasium as gym
 import numpy as np
 import pygame
-from bluesky_gym.envs.horizontal_cr_env import D_HEADING,ACTION_FREQUENCY,NUM_INTRUDERS,NM2KM,INTRUSION_DISTANCE,DISTANCE_MARGIN,AC_SPD,WAYPOINT_DISTANCE_MAX
-import bluesky as bs
+from bluesky_gym.envs.sector_cr_env import AC_DENSITY_MU, AC_DENSITY_SIGMA, AC_DENSITY_RANGE, NUM_AC_STATE, ACTION_FREQUENCY, NUM_INTRUDERS, INTRUSION_DISTANCE, NM2KM, WAYPOINT_DISTANCE_MAX, DISTANCE_MARGIN, D_HEADING, AC_SPD
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import os
 import imageio
+import bluesky as bs
 
 
 # This wrapper creates saliency maps from the current observation
@@ -81,15 +81,25 @@ class SaliencyHorizontalControl(gym.Wrapper):
         self.unwrapped.total_intrusions = 0
         self.unwrapped.average_drift = np.array([])
 
-        bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
+        self.unwrapped._generate_polygon() # Create airspace polygon
+        
+        if self.unwrapped.density_mode == "normal":
+            rand_density = self.np_random.normal(AC_DENSITY_MU, AC_DENSITY_SIGMA)
+            self.unwrapped.num_ac = int(max(np.ceil(rand_density * self.unwrapped.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
+        else:
+            rand_density = self.np_random.uniform(*AC_DENSITY_RANGE)
+            self.unwrapped.num_ac = int(max(np.ceil(rand_density * self.unwrapped.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
+        
+        self.unwrapped._generate_waypoints() # Create waypoints for aircraft
+        self.unwrapped._generate_ac() # Create aircraft in the airspace
 
-        self.unwrapped._generate_conflicts()
-        self.unwrapped._generate_waypoint()
         observation = self.unwrapped._get_obs()
-        info = self.unwrapped._get_info()
 
-        if self.unwrapped.render_mode == "human":
+        info = self.unwrapped._get_info()
+        
+        if self.render_mode == "human":
             self._render_frame()
+
 
         return observation, info
             
@@ -151,34 +161,44 @@ class SaliencyHorizontalControl(gym.Wrapper):
                     pygame.display.quit()
                 self.close()
                 
-        max_distance = 200 # width of screen in km
-
+        max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.unwrapped.poly_points for point2 in self.unwrapped.poly_points)*NM2KM
+        px_per_km = self.unwrapped.window_width/max_distance
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
+        
+        # Draw airspace
+        airspace_color = (255, 0, 0)
+        coords = [((self.unwrapped.window_width/2)+point[0]*NM2KM*px_per_km, (self.unwrapped.window_height/2)-point[1]*NM2KM*px_per_km) for point in self.unwrapped.poly_points]
+        pygame.draw.polygon(canvas, airspace_color, coords, width=2)
 
         # draw ownship
-        ac_idx = bs.traf.id2idx('KL001')
-        ac_length = 8
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
+        ac_idx = bs.traf.id2idx(ACTOR)
+        ac_length = 10
+        ac_hdg = bs.traf.hdg[ac_idx]
+        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * ac_length
+        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * ac_length
+        ac_qdr, ac_dis = bs.tools.geo.kwikqdrdist(CENTER[0], CENTER[1], bs.traf.lat[ac_idx], bs.traf.lon[ac_idx])
 
+        x_pos = (self.window_width/2)+(np.cos(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
+        y_pos = (self.window_height/2)-(np.sin(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
+        
         pygame.draw.line(canvas,
             (0,0,0),
-            (self.unwrapped.window_width/2-heading_end_x/2,self.unwrapped.window_height/2+heading_end_y/2),
-            ((self.unwrapped.window_width/2)+heading_end_x/2,(self.unwrapped.window_height/2)-heading_end_y/2),
+            (x_pos,y_pos),
+            ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
             width = 4
         )
 
-        # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.unwrapped.window_width
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.unwrapped.window_width
+        #Draw heading line
+        heading_length = 20
+        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * heading_length
+        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * heading_length
 
         pygame.draw.line(canvas,
-            (0,0,0),
-            (self.unwrapped.window_width/2,self.unwrapped.window_height/2),
-            ((self.unwrapped.window_width/2)+heading_end_x,(self.unwrapped.window_height/2)-heading_end_y),
-            width = 1
+                (0,0,0),
+                (x_pos,y_pos),
+                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+                width = 1
         )
 
         # Plot additionally the intended_heading (baseline heading)
@@ -281,19 +301,14 @@ class SaliencyHorizontalControl(gym.Wrapper):
         # draw intruders
         ac_length = 3
 
-        for i in range(NUM_INTRUDERS):
+        for i in range(self.unwrapped.num_ac -1):
             int_idx = i+1
             int_hdg = bs.traf.hdg[int_idx]
-            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.unwrapped.window_width
-            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.unwrapped.window_width
+            heading_end_x = np.cos(np.deg2rad(int_hdg)) * ac_length
+            heading_end_y = np.sin(np.deg2rad(int_hdg)) * ac_length
 
-            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
-
-            # # determine color
-            # if int_dis < INTRUSION_DISTANCE:
-            #     color = (220,20,60)
-            # else: 
-            #     color = (80,80,80)
+            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(CENTER[0], CENTER[1], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
+            separation = bs.tools.geo.kwikdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
             
             
             
@@ -353,9 +368,9 @@ class SaliencyHorizontalControl(gym.Wrapper):
                 color = (80,80,80)
             
 
-            x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.unwrapped.window_width
-            y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.unwrapped.window_height
-
+            x_pos = (self.window_width/2)+(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+            y_pos = (self.window_height/2)-(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+            
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),
@@ -364,10 +379,10 @@ class SaliencyHorizontalControl(gym.Wrapper):
             )
 
             # draw heading line
-            heading_length = 10
-            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.unwrapped.window_width
-            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.unwrapped.window_width
-
+            heading_length = 20
+            heading_end_x = np.cos(np.deg2rad(int_hdg)) * heading_length
+            heading_end_y = np.sin(np.deg2rad(int_hdg)) * heading_length
+            
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),
@@ -379,40 +394,12 @@ class SaliencyHorizontalControl(gym.Wrapper):
                 canvas, 
                 color,
                 (x_pos,y_pos),
-                radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.unwrapped.window_width,
+                radius = INTRUSION_DISTANCE*NM2KM*px_per_km,
                 width = 2
             )
 
             # import code
             # code.interact(local=locals())
-
-        # draw target waypoint
-        for qdr, dis, reach in zip(self.unwrapped.wpt_qdr, self.unwrapped.waypoint_distance, self.unwrapped.wpt_reach):
-
-            circle_x = ((np.sin(np.deg2rad(qdr)) * dis)/max_distance)*self.unwrapped.window_width
-            circle_y = ((np.cos(np.deg2rad(qdr)) * dis)/max_distance)*self.unwrapped.window_width
-
-            if reach:
-                color = (155,155,155)
-            else:
-                color = (255,255,255)
-
-            pygame.draw.circle(
-                canvas, 
-                color,
-                ((self.unwrapped.window_width/2)+circle_x,(self.unwrapped.window_height/2)-circle_y),
-                radius = 4,
-                width = 0
-            )
-            
-            pygame.draw.circle(
-                canvas, 
-                color,
-                ((self.unwrapped.window_width/2)+circle_x,(self.unwrapped.window_height/2)-circle_y),
-                radius = (DISTANCE_MARGIN/max_distance)*self.unwrapped.window_width,
-                width = 2
-            )
-
         
         
         # Draw legend for SHAP influence

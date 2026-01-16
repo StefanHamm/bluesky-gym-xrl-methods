@@ -120,16 +120,17 @@ if __name__ == "__main__":
     #JOBID = "4684614"
     JOBID = "4675598"
     SEED = 42
+    color_mode = "scaled"  #"clipped"  #"scaled"
     #plots/jobid/gifs/
     if DEBUG:
         gifFolder = f"./plots/{JOBID}/shapSafeStateDebug/"
     else:
-        gifFolder = f"./plots/{JOBID}/shapSafeState/"
+        gifFolder = f"./plots/{JOBID}/shapSafeState/{color_mode}/"
     
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     env.reset(seed=SEED)
-    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5)
+    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode)
     
     
     
@@ -142,9 +143,12 @@ if __name__ == "__main__":
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
-        i = 0
+        step = 0
+        if i != 4:
+            
+            continue
         while not (done or truncated):
-            i+=1
+            step+=1
             
             if DEBUG:
                 action, _states = model.predict(DEBUG_baselineObservation(obs), deterministic=True)
@@ -154,7 +158,7 @@ if __name__ == "__main__":
             shap_values = None
             logging.info(f"Action taken: {action}")
             
-            if i % 1 == 0:
+            if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runPermutationExplainer(model, obs)
                 logging.info(f"shap_values: {shap_values}")
@@ -162,7 +166,6 @@ if __name__ == "__main__":
             obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
             
     env.close()
-
 
 
 

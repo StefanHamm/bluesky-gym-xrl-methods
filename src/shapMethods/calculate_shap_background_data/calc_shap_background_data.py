@@ -94,11 +94,12 @@ if __name__ == "__main__":
     DEBUG = False
     RUN_BASELINE_ACTION = False
 
+    color_mode = "default"  #"clipped"  #"scaled"
     if DEBUG:
         gifFolder = f"./plots/{JOBID}/shapBackgroundDataDebug/"
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     else:
-        gifFolder = f"./plots/{JOBID}/shapBackgroundData/"
+        gifFolder = f"./plots/{JOBID}/shapBackgroundData/{color_mode}/"
     
         logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
@@ -117,16 +118,20 @@ if __name__ == "__main__":
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
-        i = 0
+        step = 0
+        
+        if i != 4:
+            
+            continue
         while not (done or truncated):
-            i+=1
+            step+=1
             
 
             action, _states = model.predict(obs, deterministic=True)
             shap_values = None
             logging.info(f"Action taken: {action}")
             
-            if i % 1 == 0:
+            if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runPermutationExplainer(model, obs,backgroundData,n_samples=300)
                 logging.info(f"shap_values: {shap_values}")
