@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import pygame
-from bluesky_gym.envs.sector_cr_env import AC_DENSITY_MU, AC_DENSITY_SIGMA, AC_DENSITY_RANGE, NUM_AC_STATE, ACTION_FREQUENCY, NUM_INTRUDERS, INTRUSION_DISTANCE, NM2KM, WAYPOINT_DISTANCE_MAX, DISTANCE_MARGIN, D_HEADING, AC_SPD
+from bluesky_gym.envs.sector_cr_env import AC_DENSITY_MU, AC_DENSITY_SIGMA, AC_DENSITY_RANGE, NUM_AC_STATE, ACTION_FREQUENCY, INTRUSION_DISTANCE, NM2KM, D_HEADING, AC_SPD,ACTOR,CENTER
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import os
@@ -16,11 +16,11 @@ import bluesky as bs
 
 
 
-class SaliencyHorizontalControl(gym.Wrapper):
+class SaliencySectorControl(gym.Wrapper):
     
     def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped"):
         """
-        Initialize the SaliencyHorizontalControl wrapper.
+        Initialize the SaliencySectorControl wrapper.
 
         Args:
             env: The Gym environment to wrap.
@@ -65,42 +65,17 @@ class SaliencyHorizontalControl(gym.Wrapper):
             
             
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
+        # 1. Let the environment reset itself (generates polygon, aircraft, etc.)
+        observation, info = super().reset(seed=seed)
         
+        # 2. Update wrapper-specific counters and paths
         self.episode_counter += 1
         self.step_counter = 0
         
         if self.export_gifs_path is not None:
-            # create folder inside frames for this episode
             self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
             os.makedirs(self.episode_frames_path, exist_ok=True)
-        
-        bs.traf.reset()
-
-        self.unwrapped.total_reward = 0
-        self.unwrapped.total_intrusions = 0
-        self.unwrapped.average_drift = np.array([])
-
-        self.unwrapped._generate_polygon() # Create airspace polygon
-        
-        if self.unwrapped.density_mode == "normal":
-            rand_density = self.np_random.normal(AC_DENSITY_MU, AC_DENSITY_SIGMA)
-            self.unwrapped.num_ac = int(max(np.ceil(rand_density * self.unwrapped.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
-        else:
-            rand_density = self.np_random.uniform(*AC_DENSITY_RANGE)
-            self.unwrapped.num_ac = int(max(np.ceil(rand_density * self.unwrapped.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
-        
-        self.unwrapped._generate_waypoints() # Create waypoints for aircraft
-        self.unwrapped._generate_ac() # Create aircraft in the airspace
-
-        observation = self.unwrapped._get_obs()
-
-        info = self.unwrapped._get_info()
-        
-        if self.render_mode == "human":
-            self._render_frame()
-
-
+            
         return observation, info
             
     def step(self, action, shap_values=None,examplePlane = None):
@@ -128,23 +103,22 @@ class SaliencyHorizontalControl(gym.Wrapper):
 
                 self._render_frame(shap_values=shap_values,examplePlane=examplePlane)
 
-        observation = self.unwrapped._get_obs()
-        reward, terminated = self.unwrapped._get_reward()
-
+        observation = self.unwrapped._get_obs()        
+        reward = self.unwrapped._get_reward()
         info = self.unwrapped._get_info()
 
+        # truncate instead of terminate to avoid aircraft learning to exit sector fast
+        truncate = self.unwrapped._check_inside_airspace()
+
         # bluesky reset?? bs.sim.reset()
-        if terminated:
-            for acid in bs.traf.id:
-                idx = bs.traf.id2idx(acid)
-                bs.traf.delete(idx)
+        if truncate:
             if self.export_gifs_path is not None:
                 # export gif from saved frames
                 gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
                 images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
                 imageio.mimsave(gif_filename, images, fps=self.fps)
 
-        return observation, reward, terminated, False, info
+        return observation, reward, False, truncate, info
     
     def _render_frame(self,shap_values=None,examplePlane=None):
         if self.unwrapped.window is None and self.render_mode == "human":
@@ -157,12 +131,13 @@ class SaliencyHorizontalControl(gym.Wrapper):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                if self.window is not None:
+                if self.unwrapped.window is not None:
                     pygame.display.quit()
                 self.close()
                 
         max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.unwrapped.poly_points for point2 in self.unwrapped.poly_points)*NM2KM
         px_per_km = self.unwrapped.window_width/max_distance
+        
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
         
@@ -179,8 +154,8 @@ class SaliencyHorizontalControl(gym.Wrapper):
         heading_end_y = np.sin(np.deg2rad(ac_hdg)) * ac_length
         ac_qdr, ac_dis = bs.tools.geo.kwikqdrdist(CENTER[0], CENTER[1], bs.traf.lat[ac_idx], bs.traf.lon[ac_idx])
 
-        x_pos = (self.window_width/2)+(np.cos(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
-        y_pos = (self.window_height/2)-(np.sin(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
+        x_pos = (self.unwrapped.window_width/2)+(np.cos(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
+        y_pos = (self.unwrapped.window_height/2)-(np.sin(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
         
         pygame.draw.line(canvas,
             (0,0,0),
@@ -210,14 +185,13 @@ class SaliencyHorizontalControl(gym.Wrapper):
             # intended_heading = current_heading + baseline_turn
             intended_heading = bs.traf.hdg[ac_idx] + base_val * D_HEADING
             
-            heading_end_x_intend = ((np.sin(np.deg2rad(intended_heading)) * heading_length)/max_distance)*self.unwrapped.window_width
-            heading_end_y_intend = ((np.cos(np.deg2rad(intended_heading)) * heading_length)/max_distance)*self.unwrapped.window_width
-            
+            heading_end_x = np.cos(np.deg2rad(intended_heading)) * ac_length
+            heading_end_y = np.sin(np.deg2rad(intended_heading)) * ac_length
             # Draw baseline/intended heading as a Green line
             pygame.draw.line(canvas,
                 (0,255,0),
-                (self.unwrapped.window_width/2,self.unwrapped.window_height/2),
-                ((self.unwrapped.window_width/2)+heading_end_x_intend,(self.unwrapped.window_height/2)-heading_end_y_intend),
+                (x_pos,y_pos),
+                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
                 width = 2
             )
 
@@ -300,6 +274,16 @@ class SaliencyHorizontalControl(gym.Wrapper):
 
         # draw intruders
         ac_length = 3
+        
+        ac_loc = fn.latlong_to_nm(CENTER, np.array([bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]])) * NM2KM * 1000 
+        distances = [fn.euclidean_distance(ac_loc, fn.latlong_to_nm(CENTER, np.array([bs.traf.lat[i], bs.traf.lon[i]])) * NM2KM * 1000) for i in range(1, self.unwrapped.num_ac)]
+        
+        # Sort indices by distance to know which ones are in the observation
+        # Note: ac_idx_by_dist contains indices relative to the 'distances' list (0 to N-1), 
+        # which corresponds to intruder IDs (1 to N).
+        sorted_indices = np.argsort(distances)
+        top_k_indices = sorted_indices[:NUM_AC_STATE] # Indices of the closest 4 intruders
+        obs_rank_map = {idx + 1: rank for rank, idx in enumerate(top_k_indices)}
 
         for i in range(self.unwrapped.num_ac -1):
             int_idx = i+1
@@ -314,62 +298,64 @@ class SaliencyHorizontalControl(gym.Wrapper):
             
             
             if shap_values is not None:
-                if i < len(shap_values.values[0]):
-                    saliency = shap_values.values[0][i]
-                    
-                    
-                    if self.color_mode == self.color_map["quantitized"]:
-                        val = np.clip(saliency, -1, 1)
-                        if val < -0.75:
-                            color = (0, 0, 255)        # Dark blue (very strong left)
-                        elif val < -0.5:
-                            color = (50, 100, 255)     # Blue (strong left)
-                        elif val < -0.25:
-                            color = (100, 150, 255)    # Light blue (moderate left)
-                        elif val < -0.125:
-                            color = (150, 180, 255)    # Pale blue (weak left)
-                        elif val < 0.125:
-                            color = (80, 80, 80)       # Grey (minimal influence)
-                        elif val < 0.25:
-                            color = (255, 200, 100)    # Pale orange (weak right)
-                        elif val < 0.5:
-                            color = (255, 165, 0)      # Orange (moderate right)
-                        elif val < 0.75:
-                            color = (255, 100, 0)      # Dark orange (strong right)
-                        else:
-                            color = (255, 0, 0)        # Red (very strong right)
-                                            
-                    else:
-                        if self.color_mode == self.color_map["clipped"]:
+                if int_idx in obs_rank_map:
+                    rank = obs_rank_map[int_idx]
+                    if rank < len(shap_values.values[0]):
+                        saliency = shap_values.values[0][rank][0]
+                        
+                        
+                        if self.color_mode == self.color_map["quantitized"]:
                             val = np.clip(saliency, -1, 1)
-                        elif self.color_mode == self.color_map["scaled"]:
-                            val = saliency
-                            #scale by max abs value of shap values
-                            max_abs = np.max(np.abs(shap_values.values))
-                            val = val / max_abs if max_abs != 0 else 0
-                        elif self.color_mode == self.color_map["baseline_scaled"]:
-                            val = saliency
-                            baseline = shap_values.base_values[0][0]
-                            scale_factor = 1+ abs(baseline)
-                            val = val/scale_factor
-                        elif self.color_mode == self.color_map["default"]:
-                            val = saliency / 2.0
-                        
-                        if val < 0:
-                            t = -val
-                            color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
+                            if val < -0.75:
+                                color = (0, 0, 255)        # Dark blue (very strong left)
+                            elif val < -0.5:
+                                color = (50, 100, 255)     # Blue (strong left)
+                            elif val < -0.25:
+                                color = (100, 150, 255)    # Light blue (moderate left)
+                            elif val < -0.125:
+                                color = (150, 180, 255)    # Pale blue (weak left)
+                            elif val < 0.125:
+                                color = (80, 80, 80)       # Grey (minimal influence)
+                            elif val < 0.25:
+                                color = (255, 200, 100)    # Pale orange (weak right)
+                            elif val < 0.5:
+                                color = (255, 165, 0)      # Orange (moderate right)
+                            elif val < 0.75:
+                                color = (255, 100, 0)      # Dark orange (strong right)
+                            else:
+                                color = (255, 0, 0)        # Red (very strong right)
+                                                
                         else:
-                            t = val
-                            color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
-                        
+                            if self.color_mode == self.color_map["clipped"]:
+                                val = np.clip(saliency, -1, 1)
+                            elif self.color_mode == self.color_map["scaled"]:
+                                val = saliency
+                                #scale by max abs value of shap values
+                                max_abs = np.max(np.abs(shap_values.values))
+                                val = val / max_abs if max_abs != 0 else 0
+                            elif self.color_mode == self.color_map["baseline_scaled"]:
+                                val = saliency
+                                baseline = shap_values.base_values[0][0]
+                                scale_factor = 1+ abs(baseline)
+                                val = val/scale_factor
+                            elif self.color_mode == self.color_map["default"]:
+                                val = saliency / 2.0
+                            
+                            if val < 0:
+                                t = -val
+                                color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
+                            else:
+                                t = val
+                                color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
+                            
                 else:
                     color = (80,80,80)
             else:
                 color = (80,80,80)
             
 
-            x_pos = (self.window_width/2)+(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
-            y_pos = (self.window_height/2)-(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+            x_pos = (self.unwrapped.window_width/2)+(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+            y_pos = (self.unwrapped.window_height/2)-(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
             
             pygame.draw.line(canvas,
                 color,
@@ -429,7 +415,7 @@ class SaliencyHorizontalControl(gym.Wrapper):
             legend_text = font.render("Green line: Heading w/o other aircrafts", True, (0,100,0))
             canvas.blit(legend_text, (legend_x, legend_y - 90))
 
-            intended_heading = self.unwrapped.ac_hdg + shap_values.base_values[0][0] * D_HEADING
+            intended_heading = bs.traf.hdg[bs.traf.id2idx(ACTOR)] + shap_values.base_values[0][0] * D_HEADING
             
 
         # Draw color scale: left (blue) to right (red)
