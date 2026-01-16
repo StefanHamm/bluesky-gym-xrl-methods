@@ -150,12 +150,12 @@ class SaliencySectorControl(gym.Wrapper):
         ac_idx = bs.traf.id2idx(ACTOR)
         ac_length = 10
         ac_hdg = bs.traf.hdg[ac_idx]
-        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * ac_length
-        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * ac_length
+        heading_end_x = np.sin(np.deg2rad(ac_hdg)) * ac_length
+        heading_end_y = np.cos(np.deg2rad(ac_hdg)) * ac_length
         ac_qdr, ac_dis = bs.tools.geo.kwikqdrdist(CENTER[0], CENTER[1], bs.traf.lat[ac_idx], bs.traf.lon[ac_idx])
 
-        x_pos = (self.unwrapped.window_width/2)+(np.cos(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
-        y_pos = (self.unwrapped.window_height/2)-(np.sin(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
+        x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
+        y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(ac_qdr))*(ac_dis * NM2KM)*px_per_km)
         
         pygame.draw.line(canvas,
             (0,0,0),
@@ -166,8 +166,8 @@ class SaliencySectorControl(gym.Wrapper):
 
         #Draw heading line
         heading_length = 20
-        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * heading_length
-        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * heading_length
+        heading_end_x = np.sin(np.deg2rad(ac_hdg)) * heading_length
+        heading_end_y = np.cos(np.deg2rad(ac_hdg)) * heading_length
 
         pygame.draw.line(canvas,
                 (0,0,0),
@@ -240,8 +240,8 @@ class SaliencySectorControl(gym.Wrapper):
                 # hdg_int = hdg_own - heading_diff
                 heading_global_deg = (bs.traf.hdg[ac_idx] - heading_diff_deg) % 360
 
-                heading_end_y = ((np.sin(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
-                heading_end_x = ((np.cos(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
+                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
+                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
 
                 # draw centered line for the aircraft
                 pygame.draw.line(canvas,
@@ -253,8 +253,8 @@ class SaliencySectorControl(gym.Wrapper):
 
                 # draw heading line
                 heading_length = 15
-                heading_end_y = ((np.sin(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
-                heading_end_x = ((np.cos(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
+                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
+                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
 
                 pygame.draw.line(canvas,
                     color,
@@ -288,8 +288,8 @@ class SaliencySectorControl(gym.Wrapper):
         for i in range(self.unwrapped.num_ac -1):
             int_idx = i+1
             int_hdg = bs.traf.hdg[int_idx]
-            heading_end_x = np.cos(np.deg2rad(int_hdg)) * ac_length
-            heading_end_y = np.sin(np.deg2rad(int_hdg)) * ac_length
+            heading_end_x = np.sin(np.deg2rad(int_hdg)) * ac_length
+            heading_end_y = np.cos(np.deg2rad(int_hdg)) * ac_length
 
             int_qdr, int_dis = bs.tools.geo.kwikqdrdist(CENTER[0], CENTER[1], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
             separation = bs.tools.geo.kwikdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
@@ -354,8 +354,8 @@ class SaliencySectorControl(gym.Wrapper):
                 color = (80,80,80)
             
 
-            x_pos = (self.unwrapped.window_width/2)+(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
-            y_pos = (self.unwrapped.window_height/2)-(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+            x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+            y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
             
             pygame.draw.line(canvas,
                 color,
@@ -366,8 +366,8 @@ class SaliencySectorControl(gym.Wrapper):
 
             # draw heading line
             heading_length = 20
-            heading_end_x = np.cos(np.deg2rad(int_hdg)) * heading_length
-            heading_end_y = np.sin(np.deg2rad(int_hdg)) * heading_length
+            heading_end_x = np.sin(np.deg2rad(int_hdg)) * heading_length
+            heading_end_y = np.cos(np.deg2rad(int_hdg)) * heading_length
             
             pygame.draw.line(canvas,
                 color,
