@@ -98,10 +98,10 @@ class SectorCREnv(gym.Env):
         
         if self.density_mode == "normal":
             rand_density = self.np_random.normal(AC_DENSITY_MU, AC_DENSITY_SIGMA)
-            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
+            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), int((NUM_AC_STATE+1)*options.get("SpawnFactor",1)))) # Get total number of AC in the airspace including agent (min = 3)
         else:
             rand_density = self.np_random.uniform(*AC_DENSITY_RANGE)
-            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
+            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), int((NUM_AC_STATE+1)*options.get("SpawnFactor",1)))) # Get total number of AC in the airspace including agent (min = 3)
         
         self._generate_waypoints() # Create waypoints for aircraft
         self._generate_ac() # Create aircraft in the airspace

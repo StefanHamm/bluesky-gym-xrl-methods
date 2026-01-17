@@ -147,11 +147,12 @@ if __name__ == "__main__":
         gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeStateDebug/"
     else:
         gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeState/{color_mode}/"
-        
+    spawnFactor = 4
+    options = {"SpawnFactor":spawnFactor}
     
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
-    env.reset(seed=SEED)
+    env.reset(seed=SEED,options=options)
 
     
     saliencyEnv = SaliencySectorControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode)
@@ -163,13 +164,14 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
+    max_steps = 50
     n_eps = 6
     for i in range(n_eps):
         done = truncated = False
-        obs, info = saliencyEnv.reset()
+        obs, info = saliencyEnv.reset(options=options)
         step = 0
 
-        while not (done or truncated) and step < 30:
+        while not (done or truncated) and step < max_steps:
             step+=1
             
             if DEBUG:
@@ -189,7 +191,8 @@ if __name__ == "__main__":
          
             #obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
             obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values=shap_values)
-            
+        if step == max_steps:
+            saliencyEnv.export_gif()
             
     env.close()
 

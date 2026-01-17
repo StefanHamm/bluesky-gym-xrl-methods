@@ -117,8 +117,8 @@ def runPermutationExplainer(model, observation):
 
 if __name__ == "__main__":
     
-    #JOBID = "4684614"
-    JOBID = "4675598"
+    JOBID = "4676447"
+    #JOBID = "4675598"
     SEED = 42
     color_mode = "scaled"  #"clipped"  #"scaled"
     #plots/jobid/gifs/
@@ -144,9 +144,7 @@ if __name__ == "__main__":
         done = truncated = False
         obs, info = saliencyEnv.reset()
         step = 0
-        if i != 4:
-            
-            continue
+
         while not (done or truncated):
             step+=1
             

@@ -66,7 +66,7 @@ class SaliencySectorControl(gym.Wrapper):
             
     def reset(self, seed=None, options=None):
         # 1. Let the environment reset itself (generates polygon, aircraft, etc.)
-        observation, info = super().reset(seed=seed)
+        observation, info = super().reset(seed=seed,options=options)
         
         # 2. Update wrapper-specific counters and paths
         self.episode_counter += 1
@@ -121,6 +121,13 @@ class SaliencySectorControl(gym.Wrapper):
                 imageio.mimsave(gif_filename, images, fps=self.fps)
 
         return observation, reward, False, truncate, info
+    
+    def export_gif(self):
+        if self.export_gifs_path is not None:
+                # export gif from saved frames
+                gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
+                images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
+                imageio.mimsave(gif_filename, images, fps=self.fps)
     
     def _render_frame(self,shap_values=None,examplePlane=None):
         if self.unwrapped.window is None and self.render_mode == "human":
@@ -452,7 +459,7 @@ class SaliencySectorControl(gym.Wrapper):
         # Draw sum of SHAP values above the legend
         if shap_values is not None:
             try:
-                shap_sum = float(np.sum(shap_values.values))
+                shap_sum = float(np.sum(shap_values.values[0][:,0]))
             except Exception:
                 shap_sum = float(np.sum(shap_values))
             sum_text = font.render(f"Sum of SHAP values: {shap_sum:.3f}", True, (0,0,0))

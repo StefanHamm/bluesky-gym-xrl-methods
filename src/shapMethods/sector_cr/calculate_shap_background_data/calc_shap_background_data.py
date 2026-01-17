@@ -117,7 +117,11 @@ if __name__ == "__main__":
     
         logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
-    env.reset(seed=SEED)
+    
+    spawnFactor = 4
+    options = {"SpawnFactor":spawnFactor}
+    
+    env.reset(seed=SEED,options=options)
     saliencyEnv = SaliencySectorControl(env,None,None,export_gifs_path=gifFolder,fps=5)
     
     
@@ -129,13 +133,14 @@ if __name__ == "__main__":
     model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
     n_eps = 6
+    max_steps = 50
 
     for i in range(n_eps):
         done = truncated = False
-        obs, info = saliencyEnv.reset()
+        obs, info = saliencyEnv.reset(options=options)
         step = 0
         
-        while not (done or truncated) and step < 30:
+        while not (done or truncated) and step < max_steps:
             step+=1
             
 
@@ -160,6 +165,8 @@ if __name__ == "__main__":
             print(f"Episode {i+1} truncated after {step} steps.")
             
             
+        if step == max_steps:
+            saliencyEnv.export_gif()
             
             
     env.close()
