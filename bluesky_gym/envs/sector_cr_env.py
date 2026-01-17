@@ -86,6 +86,8 @@ class SectorCREnv(gym.Env):
         self.clock = None
     
     def reset(self, seed=None, options=None):
+        if options is None:
+            options = {}
         bs.traf.reset()
         bs.tools.areafilter.deleteArea(self.poly_name)
         super().reset(seed=seed)
