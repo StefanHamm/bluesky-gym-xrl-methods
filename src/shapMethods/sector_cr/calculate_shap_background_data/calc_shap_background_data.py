@@ -108,7 +108,7 @@ if __name__ == "__main__":
     DEBUG = False
     RUN_BASELINE_ACTION = False
 
-    color_mode = "default"  #"clipped"  #"scaled"
+    color_mode = "clipped"  #"clipped"  #"scaled"
     if DEBUG:
         gifFolder = f"./plots/{JOBID}/{env_name}/shapBackgroundDataDebug/"
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -128,15 +128,14 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
-    n_eps = 15
-    for i in range(7):
-        env.reset()
+    n_eps = 6
+
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
         step = 0
         
-        while not (done or truncated) and step < 200:
+        while not (done or truncated) and step < 30:
             step+=1
             
 

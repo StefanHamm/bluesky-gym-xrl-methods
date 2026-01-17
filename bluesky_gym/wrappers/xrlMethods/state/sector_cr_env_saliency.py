@@ -94,11 +94,13 @@ class SaliencySectorControl(gym.Wrapper):
                 # to ensure the ghost intruder stays synchronized with the simulation step.
                 if self.DEBUG and examplePlane is not None:
                     examplePlane = {
-                        "dist": observation["intruder_distance"][0],
-                        "cos": observation["cos_difference_pos"][0],
-                        "sin": observation["sin_difference_pos"][0],
-                        "dx": observation["x_difference_speed"][0],
-                        "dy": observation["y_difference_speed"][0]
+                        "x_r": observation["x_r"][0],
+                        "y_r": observation["y_r"][0],
+                        "vx_r": observation["vx_r"][0],
+                        "vy_r": observation["vy_r"][0],
+                        "cos(track)": observation["cos(track)"][0],
+                        "sin(track)": observation["sin(track)"][0],
+                        "distances": observation["distances"][0]
                     }
 
                 self._render_frame(shap_values=shap_values,examplePlane=examplePlane)
@@ -196,82 +198,111 @@ class SaliencySectorControl(gym.Wrapper):
             )
 
         if self.DEBUG:
+            # Ghost Intruder Parameters
+            # Use safe_vals as the ghost data
             if examplePlane is not None:
-                self.safe_vals = examplePlane
-            #plot one intrude (now plotted relative to ownship heading)
-            color = (0,255,0)
-
-            # compute relative bearing from cos/sin (these encode ac_hdg - qdr)
-            rel_bearing_rad = np.arctan2(self.safe_vals["sin"], self.safe_vals["cos"])  # rel = ac_hdg - qdr
-            rel_bearing_deg = np.rad2deg(rel_bearing_rad)
-            # convert to global bearing from ownship to intruder
-            int_qdr = (bs.traf.hdg[ac_idx] - rel_bearing_deg) % 360
-
-            # CORRECT DISTANCE CALCULATION:
-            # safe_vals["dist"] is normalized (0-1), so we multiply by MAX to get KM
-            dist_km = self.safe_vals["dist"] * WAYPOINT_DISTANCE_MAX
+                ghost_dict = examplePlane
+            else:
+                ghost_dict = self.safe_vals
             
-            # Use consistent scale for X and Y to prevent distortion
-            screen_scale = self.unwrapped.window_height 
+            ghost_color = (255, 0, 255)  # Magenta for ghost intruder
 
-            x_pos = (self.unwrapped.window_width/2) + (np.sin(np.deg2rad(int_qdr)) * dist_km / max_distance) * screen_scale
-            y_pos = (self.unwrapped.window_height/2) - (np.cos(np.deg2rad(int_qdr)) * dist_km / max_distance) * screen_scale
-
-            # compute intruder heading: rotate local (dx,dy) by ownship heading
-            heading_mag = np.sqrt(self.safe_vals["dx"]**2 + self.safe_vals["dy"]**2)
-            if heading_mag > 1e-8:
-                # REVERSE TRANSFORM SPEED DIFFERENCE TO HEADING
-                # x_dif = - cos(heading_diff) * gs_int
-                # y_dif = gs_own - sin(heading_diff) * gs_int
-                
-                # denormalize
-                x_dif = self.safe_vals["dx"] * AC_SPD
-                y_dif = self.safe_vals["dy"] * AC_SPD
-                gs_own = bs.traf.gs[ac_idx]
-                
-                # tan(heading_diff) = sin(heading_diff) / cos(heading_diff)
-                # sin(heading_diff) ~ (gs_own - y_dif)
-                # cos(heading_diff) ~ -x_dif
-                
-                heading_diff_rad = np.arctan2(gs_own - y_dif, -x_dif)
-                heading_diff_deg = np.rad2deg(heading_diff_rad)
-                
-                # heading_diff = hdg_own - hdg_int
-                # hdg_int = hdg_own - heading_diff
-                heading_global_deg = (bs.traf.hdg[ac_idx] - heading_diff_deg) % 360
-
-                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
-                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * ac_length)/max_distance)*self.unwrapped.window_width
-
-                # draw centered line for the aircraft
-                pygame.draw.line(canvas,
-                    color,
-                    (x_pos - heading_end_x/2, y_pos + heading_end_y/2),
-                    (x_pos + heading_end_x/2, y_pos - heading_end_y/2),
-                    width = 4
-                )
-
-                # draw heading line
-                heading_length = 15
-                heading_end_x = ((np.sin(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
-                heading_end_y = ((np.cos(np.deg2rad(heading_global_deg)) * heading_length)/max_distance)*self.unwrapped.window_width
-
-                pygame.draw.line(canvas,
-                    color,
-                    (x_pos,y_pos),
-                    ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
-                    width = 1
-                )
+            # Denormalize relative position (x_r=North, y_r=East in SectorCREnv)
+            d_north_m = ghost_dict["x_r"] * 13000
+            d_east_m = ghost_dict["y_r"] * 13000
             
-            # Draw circle at the calculated position (center of the aircraft)
+            # Helper: px_per_m
+            px_per_m = px_per_km / 1000.0
+
+            # Calculate Ghost Screen Position relative to Ownship
+            # Ownship is at (x_pos, y_pos)
+            # ghost_x (East) = x_pos + d_east_m
+            # ghost_y (North) = y_pos - d_north_m (Screen Y is inverted)
+            ghost_x = x_pos + d_east_m * px_per_m
+            ghost_y = y_pos - d_north_m * px_per_m
+
+            # Draw Ghost Circle (Intruder)
             pygame.draw.circle(
                 canvas,
-                color,
-                (x_pos,y_pos),
-                radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.unwrapped.window_width,
-                width = 2
+                ghost_color,
+                (ghost_x, ghost_y),
+                radius=INTRUSION_DISTANCE*NM2KM*px_per_km, 
+                width=4
             )
 
+            # Calculate Ghost Heading
+            # Reconstruct velocity vectors
+            ac_tas = bs.traf.tas[ac_idx]
+            # Ownship velocity (North, East)
+            v_north_own = np.cos(np.deg2rad(ac_hdg)) * ac_tas
+            v_east_own = np.sin(np.deg2rad(ac_hdg)) * ac_tas
+            
+            # Relative velocity from ghost_dict
+            v_north_rel = ghost_dict["vx_r"] * 32
+            v_east_rel = ghost_dict["vy_r"] * 66
+            
+            # Ghost absolute velocity
+            v_north_ghost = v_north_own + v_north_rel
+            v_east_ghost = v_east_own + v_east_rel
+            
+            # Ghost Heading
+            # atan2(y, x) -> atan2(East, North) for compass heading
+            ghost_hdg_rad = np.arctan2(v_east_ghost, v_north_ghost)
+            ghost_hdg_deg = np.degrees(ghost_hdg_rad)
+            
+            # Draw Heading Line
+            heading_length = 20
+            # Heading 0 is Up (-Y in pygame)
+            heading_end_x_ghost = np.sin(np.deg2rad(ghost_hdg_deg)) * heading_length
+            heading_end_y_ghost = np.cos(np.deg2rad(ghost_hdg_deg)) * heading_length
+            
+            pygame.draw.line(canvas,
+                ghost_color,
+                (ghost_x, ghost_y),
+                (ghost_x + heading_end_x_ghost, ghost_y - heading_end_y_ghost),
+                width=6
+            )
+            
+            
+            # --- Second Heading Calculation (using sin/cos track) ---
+            # 1. Reconstruct relative velocity vector from sin(track) and cos(track)
+            # The magnitude of relative velocity is needed. Using the one derived from vx_r/vy_r
+            speed_rel = np.sqrt(v_north_rel**2 + v_east_rel**2)
+            
+            sin_track = ghost_dict["sin(track)"]
+            cos_track = ghost_dict["cos(track)"]
+            
+            # track angle was defined as atan2(vy_rel, vx_rel) -> atan2(East, North)
+            # which implies vx_rel ~ cos(track), vy_rel ~ sin(track)
+            v_north_rel_2 = cos_track * speed_rel
+            v_east_rel_2 = sin_track * speed_rel
+            
+            # 2. Add ownship velocity to get absolute velocity
+            v_north_ghost_2 = v_north_own + v_north_rel_2
+            v_east_ghost_2 = v_east_own + v_east_rel_2
+            
+            # 3. Calculate heading
+            ghost_hdg_rad_2 = np.arctan2(v_east_ghost_2, v_north_ghost_2)
+            ghost_hdg_deg_2 = np.degrees(ghost_hdg_rad_2)
+            
+            heading_end_x_ghost_2 = np.sin(np.deg2rad(ghost_hdg_deg_2)) * heading_length
+            heading_end_y_ghost_2 = np.cos(np.deg2rad(ghost_hdg_deg_2)) * heading_length
+            
+            # Plot second heading in Cyan
+            pygame.draw.line(canvas,
+                (0, 255, 255), # Cyan
+                (ghost_x, ghost_y),
+                (ghost_x + heading_end_x_ghost_2, ghost_y - heading_end_y_ghost_2),
+                width=4
+            )
+            
+            # check if the distance is caluclated correctly 
+            calculated_distance = np.sqrt(d_north_m**2 + d_east_m**2)
+            ghost_distance = ghost_dict["distances"] * 15000 + 50000
+            distance_error = abs(calculated_distance - ghost_distance)
+            print(f"DEBUG Ghost Distance Error (m): {distance_error:.2f}")
+            
+            
         # draw intruders
         ac_length = 3
         
@@ -302,6 +333,7 @@ class SaliencySectorControl(gym.Wrapper):
                     rank = obs_rank_map[int_idx]
                     if rank < len(shap_values.values[0]):
                         saliency = shap_values.values[0][rank][0]
+                        speed_inflence = shap_values.values[0][rank][1]
                         
                         
                         if self.color_mode == self.color_map["quantitized"]:
@@ -347,6 +379,28 @@ class SaliencySectorControl(gym.Wrapper):
                             else:
                                 t = val
                                 color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
+                                
+                            # create a a bar to the right of the intruder indicating speed influence.
+                            # it ranges from -0.5 (blue, decrease speed) to +0.5 (red, increase speed)
+                            # it should be a vertical bar of length 20 pixels and width 4 pixels
+                            # if the speed is positive (increase speed), the bar goes up, else it goes down 
+                            speed_bar_length = 20
+                            speed_bar_width = 4
+                            speed_t = max(-0.5, min(0.5, speed_inflence)) * 2  # scale to -1 to +1
+                            
+                            bar_color = (255, 0, 0) if speed_t > 0 else (0, 0, 255)
+                            bar_x = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+                            bar_y = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
+                            
+                            pygame.draw.line(canvas,
+                                bar_color,
+                                (bar_x + 10, bar_y),
+                                (bar_x + 10, bar_y - speed_t * speed_bar_length),
+                                width = speed_bar_width
+                            )
+                            
+                                
+                    
                             
                 else:
                     color = (80,80,80)

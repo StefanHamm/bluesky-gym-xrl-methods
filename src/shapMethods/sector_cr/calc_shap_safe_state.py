@@ -24,12 +24,28 @@ env_name = 'SectorCREnv-v0'
 
 DEBUG = False
 
+D_NORTH = 0
+D_EAST = 30000 
+
+# 1. Set your normalized relative velocities
+vx_r_norm = -0.5
+vy_r_norm = 0.0
+
+# 2. Denormalize to get the physical vector (using factors from sector_cr_env.py)
+#    vx_r is divided by 32, vy_r is divided by 66 in the env
+vx_r_raw = vx_r_norm * 32
+vy_r_raw = vy_r_norm * 66
+
+track_rad = np.arctan2(vy_r_raw, vx_r_raw)
+
 SAFE_VALS = {
-            "dist": 0.5,
-            "cos": -1.0,  # Behind
-            "sin": 0.0,
-            "dx": 1.0,    # Flying away
-            "dy": 1.0
+            "x_r": D_NORTH/13000,    # Behind
+            "y_r": D_EAST/13000,     # Centered
+            "vx_r": vx_r_norm,   # Flying away
+            "vy_r": vy_r_norm,
+            "cos(track)": np.cos(track_rad),
+            "sin(track)": np.sin(track_rad),
+            "distances": (np.sqrt(D_NORTH**2 + D_EAST**2)-50000)/15000
         }
 
 def DEBUG_baselineObservation(observation):
@@ -45,17 +61,19 @@ def DEBUG_baselineObservation(observation):
     
     else:
         for i in range(len(obs_copy["intruder_distance"])): 
-            obs_copy["intruder_distance"][i] = SAFE_VALS["dist"]
-            obs_copy["cos_difference_pos"][i] = SAFE_VALS["cos"]
-            obs_copy["sin_difference_pos"][i] = SAFE_VALS["sin"]
-            obs_copy["x_difference_speed"][i] = SAFE_VALS["dx"]
-            obs_copy["y_difference_speed"][i] = SAFE_VALS["dy"]
+            obs_copy["x_r"][i] = SAFE_VALS["x_r"]
+            obs_copy["y_r"][i] = SAFE_VALS["y_r"]
+            obs_copy["vx_r"][i] = SAFE_VALS["vx_r"]
+            obs_copy["vy_r"][i] = SAFE_VALS["vy_r"]
+            obs_copy["cos(track)"][i] = SAFE_VALS["cos(track)"]
+            obs_copy["sin(track)"][i] = SAFE_VALS["sin(track)"]
+            obs_copy["distances"][i] = SAFE_VALS["distances"]
     return obs_copy
 
 
 def runPermutationExplainer(model, observation):
     # 1. SETUP: We tell SHAP to explain features 0, 1, 2... (the intruders)
-    number_of_aircrafts = len(observation["intruder_distance"])
+    number_of_aircrafts = len(observation["distances"])
     # We pass indices [0, 1, 2...] as the "Input" to SHAP
     testX = np.array([np.arange(number_of_aircrafts)]) 
 
@@ -94,15 +112,18 @@ def runPermutationExplainer(model, observation):
             masked_indices = np.where(row_indices==0)[0]
             
             if len(masked_indices) > 0:
-                obs_batch["intruder_distance"][i, masked_indices] = SAFE_VALS["dist"]
-                obs_batch["cos_difference_pos"][i, masked_indices] = SAFE_VALS["cos"]
-                obs_batch["sin_difference_pos"][i, masked_indices] = SAFE_VALS["sin"]
-                obs_batch["x_difference_speed"][i, masked_indices] = SAFE_VALS["dx"]
-                obs_batch["y_difference_speed"][i, masked_indices] = SAFE_VALS["dy"]
+                obs_batch["x_r"][i, masked_indices] = SAFE_VALS["x_r"]
+                obs_batch["y_r"][i, masked_indices] = SAFE_VALS["y_r"]
+                obs_batch["vx_r"][i, masked_indices] = SAFE_VALS["vx_r"]
+                obs_batch["vy_r"][i, masked_indices] = SAFE_VALS["vy_r"]
+                obs_batch["cos(track)"][i, masked_indices] = SAFE_VALS["cos(track)"]
+                obs_batch["sin(track)"][i, masked_indices] = SAFE_VALS["sin(track)"]
+                obs_batch["distances"][i, masked_indices] = SAFE_VALS["distances"]
             
         # 3. Batch Predict
         # Single call for all permutations
         pred, _ = model.predict(obs_batch, deterministic=True)
+        #print(f"Custom model wrapper preds shape: {pred}")
             
         return np.array(pred)
 
@@ -120,7 +141,7 @@ if __name__ == "__main__":
     #JOBID = "4684614"
     JOBID = "4675598"
     SEED = 42
-    color_mode = "scaled"  #"clipped"  #"scaled"
+    color_mode = "clipped"  #"clipped"  #"scaled"
     #plots/jobid/gifs/
     if DEBUG:
         gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeStateDebug/"
@@ -148,11 +169,12 @@ if __name__ == "__main__":
         obs, info = saliencyEnv.reset()
         step = 0
 
-        while not (done or truncated):
+        while not (done or truncated) and step < 30:
             step+=1
             
             if DEBUG:
-                action, _states = model.predict(DEBUG_baselineObservation(obs), deterministic=True)
+                #action, _states = model.predict(DEBUG_baselineObservation(obs), deterministic=True)
+                action, _states = model.predict(obs, deterministic=True)
                 logging.info(f"DEBUG action taken: {action}")
             else:
                 action, _states = model.predict(obs, deterministic=True)
@@ -161,11 +183,12 @@ if __name__ == "__main__":
             
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
-                #shap_values = runPermutationExplainer(model, obs)
+                shap_values = runPermutationExplainer(model, obs)
                 logging.info(f"shap_values: {shap_values}")
                 
+         
             #obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
-            obs, reward, done, truncated, info = saliencyEnv.step(action[()])
+            obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values=shap_values)
             
             
     env.close()
