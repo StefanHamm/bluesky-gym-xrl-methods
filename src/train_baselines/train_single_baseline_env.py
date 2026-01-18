@@ -114,7 +114,14 @@ if __name__ == "__main__":
         else:
             policy_type = "MultiInputPolicy"
         
-        model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4)
+        if policy_type in ["SAC","TD3","DDPG"]:
+            buffer_size = int(max(1e6,args.total_timesteps))
+            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, buffer_size=buffer_size)
+        else:
+        
+            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4)
+        
+        
         model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=False)
         model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         
