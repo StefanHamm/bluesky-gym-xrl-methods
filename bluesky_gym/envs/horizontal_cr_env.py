@@ -284,6 +284,12 @@ class HorizontalCREnv(gym.Env):
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                if self.window is not None:
+                    pygame.display.quit()
+                self.close()
+
         max_distance = 200 # width of screen in km
 
         canvas = pygame.Surface(self.window_size)

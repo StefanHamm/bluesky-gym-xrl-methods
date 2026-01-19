@@ -63,6 +63,7 @@ env_counter = 0
 
 
 if __name__ == "__main__":
+    MODEL_SEED = 42
     global env_name
     # 1. Parse Arguments
     parser = argparse.ArgumentParser()
@@ -116,10 +117,10 @@ if __name__ == "__main__":
         
         if policy_type in ["SAC","TD3","DDPG"]:
             buffer_size = int(max(1e6,args.total_timesteps))
-            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, buffer_size=buffer_size)
+            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, buffer_size=buffer_size, seed=MODEL_SEED)
         else:
         
-            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4)
+            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=MODEL_SEED)
         
         
         model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=False)

@@ -117,10 +117,10 @@ def runPermutationExplainer(model, observation):
 
 if __name__ == "__main__":
     
-    JOBID = "4676447"
-    #JOBID = "4675598"
+    #JOBID = "4676447"
+    JOBID = "4675598"
     SEED = 42
-    color_mode = "scaled"  #"clipped"  #"scaled"
+    color_mode = "default"  #"clipped"  #"scaled"
     #plots/jobid/gifs/
     if DEBUG:
         gifFolder = f"./plots/{JOBID}/shapSafeStateDebug/"
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
-    n_eps = 6
+    n_eps = 10
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()

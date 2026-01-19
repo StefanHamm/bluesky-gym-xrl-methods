@@ -456,7 +456,15 @@ class SaliencyHorizontalControl(gym.Wrapper):
             else:
                 t = val
                 color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
-            pygame.draw.line(canvas, color, (legend_x + i, legend_y), (legend_x + i, legend_y + legend_height), 1)
+            pygame.draw.line(canvas, color, (legend_x + i, legend_y), (legend_x + i, legend_y + legend_height-3), 1)
+        
+        #draw sum of shap bar
+        if shap_values is not None:
+            shap_sum = float(np.sum(shap_values.values))
+            shap_sum += 2 # to scale from -2 to + 2 to 0 to 4
+            shap_sum = (shap_sum / 4) * legend_width
+            pygame.draw.line(canvas, (0,0,0), (legend_x + int(shap_sum), legend_y), (legend_x + int(shap_sum), legend_y + legend_height-3), 3)
+            
 
         # Draw border
         pygame.draw.rect(canvas, (0,0,0), (legend_x, legend_y, legend_width, legend_height), 2)
