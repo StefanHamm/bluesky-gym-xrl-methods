@@ -40,6 +40,7 @@ def runPermutationExplainer(model, observation,backgroundData,n_samples=50):
 
     # Model Wrapper
     def custom_model_wrapper(X_batch):
+        #print(len(X_batch))
         # Optimized: Batched creation and prediction
         n_masks = len(X_batch)
         total_evals = n_masks * n_samples
@@ -79,7 +80,7 @@ def runPermutationExplainer(model, observation,backgroundData,n_samples=50):
         preds_reshaped = preds.reshape(n_masks, n_samples, -1)
         return preds_reshaped.mean(axis=1)
 
-    explainer = shap.explainers.Permutation(custom_model_wrapper, cheat_masker)
+    explainer = shap.explainers.Exact(custom_model_wrapper, cheat_masker)
     
     shap_values = explainer(testX)
     return shap_values
@@ -87,8 +88,8 @@ def runPermutationExplainer(model, observation,backgroundData,n_samples=50):
 
 if __name__ == "__main__":
     
-    JOBID = "4676447"
-    #JOBID = "4675598"
+    #JOBID = "4676447"
+    JOBID = "4675598"
     SEED = 42
     #plots/jobid/gifs/
     DEBUG = False
@@ -101,7 +102,7 @@ if __name__ == "__main__":
     else:
         gifFolder = f"./plots/{JOBID}/shapBackgroundData/{color_mode}/"
     
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     env.reset(seed=SEED)
     saliencyEnv = SaliencyHorizontalControl(env,None,None,export_gifs_path=gifFolder,fps=5)

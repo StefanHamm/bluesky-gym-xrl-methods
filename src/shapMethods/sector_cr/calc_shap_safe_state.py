@@ -71,7 +71,7 @@ def DEBUG_baselineObservation(observation):
     return obs_copy
 
 
-def runPermutationExplainer(model, observation):
+def runPermutationExplainer(model, observation,action=None):
     # 1. SETUP: We tell SHAP to explain features 0, 1, 2... (the intruders)
     number_of_aircrafts = len(observation["distances"])
     # We pass indices [0, 1, 2...] as the "Input" to SHAP
@@ -91,6 +91,7 @@ def runPermutationExplainer(model, observation):
     # 3. MODEL WRAPPER: The "Real" Masker
     # This intercepts the array from SHAP, builds the dictionary, and calls your model.
     def custom_model_wrapper(X_batch):
+        #print(len(X_batch))
         # X_batch is a 2D array of indices, e.g.:
         # [[0, 1, 2],
         #  [-1, 1, 2],  <-- Intruder 0 is masked here
@@ -123,13 +124,18 @@ def runPermutationExplainer(model, observation):
         # 3. Batch Predict
         # Single call for all permutations
         pred, _ = model.predict(obs_batch, deterministic=True)
+        #print(pred[0])
         #print(f"Custom model wrapper preds shape: {pred}")
+        if action is not None:
+            # If action is is provided integer 0 or 1 , return only that action's predictions
+            return np.array([p[action] for p in pred])
+        else:
             
-        return np.array(pred)
+            return np.array(pred)
 
     # 4. RUN
     # Note: We pass the WRAPPER as the model, and cheat_masker as the masker
-    explainer = shap.explainers.Permutation(custom_model_wrapper, cheat_masker)
+    explainer = shap.explainers.Exact(custom_model_wrapper, cheat_masker)
     
     shap_values = explainer(testX)
     #shap.plots.bar(shap_values)
@@ -138,16 +144,16 @@ def runPermutationExplainer(model, observation):
 
 if __name__ == "__main__":
     
-    #JOBID = "4684614"
-    JOBID = "4675598"
+    JOBID = "4676447" # VEC env SAC
+    #JOBID = "4706792"
     SEED = 42
-    color_mode = "clipped"  #"clipped"  #"scaled"
+    color_mode = "default"  #"clipped"  #"scaled"
     #plots/jobid/gifs/
     if DEBUG:
         gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeStateDebug/"
     else:
         gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeState/{color_mode}/"
-    spawnFactor = 4
+    spawnFactor = 2
     options = {"SpawnFactor":spawnFactor}
     
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -160,9 +166,9 @@ if __name__ == "__main__":
     
     
     #modelpath = f"models/{JOBID}/HorizontalCREnv-v0_SafeObservationWrapper/HorizontalCREnv-v0_SAC_baseline_model_mp.zip"
-    modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_TD3_singleEnv_baseline_model_mp.zip"
+    modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
-    model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
+    model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
     max_steps = 50
     n_eps = 6
@@ -186,7 +192,15 @@ if __name__ == "__main__":
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runPermutationExplainer(model, obs)
+                shap_values_action_0 = runPermutationExplainer(model, obs,action=0)
+                shap_values_action_1 = runPermutationExplainer(model, obs,action=1)
+                
+                # print(action)
+                # print(shap_values)
+                # print(f"{shap_values_action_0=}")
+                # print(f"{shap_values_action_1=}")
                 logging.info(f"shap_values: {shap_values}")
+                
                 
          
             #obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)

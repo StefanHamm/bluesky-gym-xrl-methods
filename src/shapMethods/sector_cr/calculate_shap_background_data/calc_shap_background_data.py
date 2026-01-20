@@ -92,7 +92,7 @@ def runPermutationExplainer(model, observation,backgroundData,n_samples=50,actio
         #     return mean_preds 
         return mean_preds
 
-    explainer = shap.explainers.Permutation(custom_model_wrapper, cheat_masker)
+    explainer = shap.explainers.Exact(custom_model_wrapper, cheat_masker)
     
     shap_values = explainer(testX)
     #print(f"{shap_values=}")

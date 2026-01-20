@@ -466,7 +466,8 @@ class SaliencySectorControl(gym.Wrapper):
             canvas.blit(sum_text, (legend_x, legend_y - 30))
             baseline_text = font.render(f"Baseline: {shap_values.base_values[0][0]:.3f}", True, (0,0,0))
             canvas.blit(baseline_text, (legend_x, legend_y - 50))
-            action_taken_text = font.render(f"Action taken: {self.last_action}", True, (0,0,0))
+            
+            action_taken_text = font.render(f"Action taken: {self.last_action[0]:.2f},{self.last_action[1]:.2f}", True, (0,0,0))
             text_rect = action_taken_text.get_rect()
             x = int(self.unwrapped.window_width / 2 - text_rect.width / 2)
             y = int(self.unwrapped.window_height / 2 - 30 - text_rect.height)
