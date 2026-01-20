@@ -25,7 +25,7 @@ bluesky_gym.register_envs()
 env_name = 'SectorCREnv-v0'
 
 
-def runPermutationExplainer(model, observation,backgroundData,n_samples=50,action_index=0):
+def runExactExplainer(model, observation,backgroundData,n_samples=50,action_index=0):
     # runs shap permutation explainer on the given observation
     # returns shap values for the observation
     # this is done using the background data to sample from to displace  single intruders in the observation
@@ -150,7 +150,7 @@ if __name__ == "__main__":
             
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
-                shap_values = runPermutationExplainer(model, obs,backgroundData,n_samples=100)
+                shap_values = runExactExplainer(model, obs,backgroundData,n_samples=100)
                 logging.info(f"shap_values: {shap_values}")
                 
             

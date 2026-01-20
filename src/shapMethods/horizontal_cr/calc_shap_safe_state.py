@@ -53,7 +53,7 @@ def DEBUG_baselineObservation(observation):
     return obs_copy
 
 
-def runPermutationExplainer(model, observation):
+def runExactExplainer(model, observation):
     # 1. SETUP: We tell SHAP to explain features 0, 1, 2... (the intruders)
     number_of_aircrafts = len(observation["intruder_distance"])
     # We pass indices [0, 1, 2...] as the "Input" to SHAP
@@ -164,7 +164,7 @@ if __name__ == "__main__":
             
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
-                shap_values = runPermutationExplainer(model, obs)
+                shap_values = runExactExplainer(model, obs)
                 print(shap_values)
                 
                 # exit if there is a shap value greater than 1 + abs(baseline)

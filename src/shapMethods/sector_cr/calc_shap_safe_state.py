@@ -71,7 +71,7 @@ def DEBUG_baselineObservation(observation):
     return obs_copy
 
 
-def runPermutationExplainer(model, observation,action=None):
+def runExactExplainer(model, observation):
     # 1. SETUP: We tell SHAP to explain features 0, 1, 2... (the intruders)
     number_of_aircrafts = len(observation["distances"])
     # We pass indices [0, 1, 2...] as the "Input" to SHAP
@@ -124,14 +124,8 @@ def runPermutationExplainer(model, observation,action=None):
         # 3. Batch Predict
         # Single call for all permutations
         pred, _ = model.predict(obs_batch, deterministic=True)
-        #print(pred[0])
-        #print(f"Custom model wrapper preds shape: {pred}")
-        if action is not None:
-            # If action is is provided integer 0 or 1 , return only that action's predictions
-            return np.array([p[action] for p in pred])
-        else:
-            
-            return np.array(pred)
+       
+        return np.array(pred)
 
     # 4. RUN
     # Note: We pass the WRAPPER as the model, and cheat_masker as the masker
@@ -191,14 +185,7 @@ if __name__ == "__main__":
             
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
-                shap_values = runPermutationExplainer(model, obs)
-                shap_values_action_0 = runPermutationExplainer(model, obs,action=0)
-                shap_values_action_1 = runPermutationExplainer(model, obs,action=1)
-                
-                # print(action)
-                # print(shap_values)
-                # print(f"{shap_values_action_0=}")
-                # print(f"{shap_values_action_1=}")
+                shap_values = runExactExplainer(model, obs)
                 logging.info(f"shap_values: {shap_values}")
                 
                 
