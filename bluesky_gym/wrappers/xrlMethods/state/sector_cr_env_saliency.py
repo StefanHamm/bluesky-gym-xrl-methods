@@ -340,7 +340,7 @@ class SaliencySectorControl(gym.Wrapper):
                     rank = obs_rank_map[int_idx]
                     if rank < len(shap_values.values[0]):
                         saliency = shap_values.values[0][rank][0]
-                        speed_inflence = shap_values.values[0][rank][1]
+                        speed_influence = shap_values.values[0][rank][1]
                         
                         
                         if self.color_mode == self.color_map["quantitized"]:
@@ -393,7 +393,7 @@ class SaliencySectorControl(gym.Wrapper):
                             # if the speed is positive (increase speed), the bar goes up, else it goes down 
                             speed_bar_length = 20
                             speed_bar_width = 4
-                            speed_t = max(-0.5, min(0.5, speed_inflence)) * 2  # scale to -1 to +1
+                            speed_t = max(-2, min(2, speed_influence))/2  # scale to -1 to +1
                             
                             bar_color = (255, 0, 0) if speed_t > 0 else (0, 0, 255)
                             bar_x = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
@@ -405,6 +405,16 @@ class SaliencySectorControl(gym.Wrapper):
                                 (bar_x + 10, bar_y - speed_t * speed_bar_length),
                                 width = speed_bar_width
                             )
+                            
+                            # draw a rectangle around the speed bar 
+                            bar_rec_x = bar_x + 10 - speed_bar_width//2
+                            bar_rec_y = bar_y - speed_bar_length
+                            pygame.draw.rect(canvas,
+                                (0,0,0),
+                                (bar_rec_x, bar_rec_y, speed_bar_width+1, speed_bar_length * 2),
+                                width = 1
+                            )
+                            
                             
                                 
                     
@@ -452,6 +462,7 @@ class SaliencySectorControl(gym.Wrapper):
         # Draw legend for SHAP influence
         legend_x = 30
         legend_y = self.unwrapped.window_size[1] - 80
+        legend_y_2 =self.unwrapped.window_size[1] - 40
         legend_width = 200
         legend_height = 20
         font = pygame.font.SysFont(None, 24)
@@ -491,17 +502,43 @@ class SaliencySectorControl(gym.Wrapper):
             else:
                 t = val
                 color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
-            pygame.draw.line(canvas, color, (legend_x + i, legend_y), (legend_x + i, legend_y + legend_height), 1)
+            pygame.draw.line(canvas, color, (legend_x + i, legend_y+1), (legend_x + i, legend_y-1 + legend_height), 1)
+            pygame.draw.line(canvas, color, (legend_x + i, legend_y_2+1), (legend_x + i, legend_y_2-1 + legend_height), 1)
+
+        #draw sum of shap bar heading
+        if shap_values is not None:
+            shap_sum = float(np.sum([x[0] for x in shap_values.values[0]]))
+            shap_sum += 2 # to scale from -2 to + 2 to 0 to 4
+            shap_sum = (shap_sum / 4) * (legend_width-2)
+            baseline = ((shap_values.base_values[0][0] +1)/2 ) * (legend_width-2)
+            pygame.draw.line(canvas, (0,0,0), (legend_x + int(shap_sum), legend_y), (legend_x + int(shap_sum), legend_y + legend_height-3), 3)
+            pygame.draw.line(canvas, (0,100,0), (legend_x + int(baseline), legend_y), (legend_x + int(baseline), legend_y + legend_height-3), 3)
+
+        #draw sum of shap bar speed
+        if shap_values is not None:
+            shap_sum = float(np.sum([x[1] for x in shap_values.values[0]]))
+            shap_sum += 2 # to scale from -2 to + 2 to 0 to 4
+            shap_sum = (shap_sum / 4) * (legend_width-2)
+            baseline = ((shap_values.base_values[0][1] +1)/2 ) * (legend_width-2)
+            pygame.draw.line(canvas, (0,0,0), (legend_x+1 + int(shap_sum), legend_y_2+1), (legend_x+1 + int(shap_sum), legend_y_2 -1 + legend_height), 3)
+            pygame.draw.line(canvas, (0,100,0), (legend_x+1 + int(baseline), legend_y_2+1), (legend_x+1 + int(baseline), legend_y_2 -1 + legend_height), 3)
 
         # Draw border
-        pygame.draw.rect(canvas, (0,0,0), (legend_x, legend_y, legend_width, legend_height), 2)
+        pygame.draw.rect(canvas, (0,0,0), (legend_x-1, legend_y, legend_width+2, legend_height), 2)
+        pygame.draw.rect(canvas, (0,0,0), (legend_x-1, legend_y_2, legend_width+2, legend_height), 2)
 
         # Add text labels
         left_text = font.render('Left', True, (0,0,0))
         right_text = font.render('Right', True, (0,0,0))
-        canvas.blit(left_text, (legend_x - 10, legend_y + legend_height + 5))
-        canvas.blit(right_text, (legend_x + legend_width - 50, legend_y + legend_height + 5))
+        canvas.blit(left_text, (legend_x - 10, legend_y + legend_height + 2))
+        canvas.blit(right_text, (legend_x + legend_width - 50, legend_y + legend_height + 2))
 
+        left_text = font.render('Slow Down', True, (0,0,0))
+        right_text = font.render('Speed Up', True, (0,0,0))
+        canvas.blit(left_text, (legend_x - 10, legend_y_2 + legend_height + 2))
+        canvas.blit(right_text, (legend_x + legend_width - 50, legend_y_2 + legend_height + 2))
+
+        
 
         self.unwrapped.window.blit(canvas, canvas.get_rect())
         pygame.display.update()

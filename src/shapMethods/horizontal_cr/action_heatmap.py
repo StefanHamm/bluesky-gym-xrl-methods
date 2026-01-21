@@ -34,7 +34,7 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = SAC.load(modelpath, env=env,device='cpu')
     
-    actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=15, grid_spacing_km=5,export_gifs_path=gifFolder)
+    actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=5, grid_spacing_km=10,export_gifs_path=gifFolder)
     
 
     episodes = 10

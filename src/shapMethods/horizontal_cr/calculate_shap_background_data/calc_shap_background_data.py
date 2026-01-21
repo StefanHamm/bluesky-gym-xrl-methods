@@ -94,15 +94,19 @@ if __name__ == "__main__":
     #plots/jobid/gifs/
     DEBUG = False
     RUN_BASELINE_ACTION = False
+    EXPORT = False
+    
+    gifFolder= None
 
     color_mode = "default"  #"clipped"  #"scaled"
-    if DEBUG:
-        gifFolder = f"./plots/{JOBID}/shapBackgroundDataDebug/"
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    else:
-        gifFolder = f"./plots/{JOBID}/shapBackgroundData/{color_mode}/"
-    
-        logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+    if EXPORT: 
+        if DEBUG:
+            gifFolder = f"./plots/{JOBID}/shapBackgroundDataDebug/"
+            logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        else:
+            gifFolder = f"./plots/{JOBID}/shapBackgroundData/{color_mode}/"
+        
+            logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     env.reset(seed=SEED)
     saliencyEnv = SaliencyHorizontalControl(env,None,None,export_gifs_path=gifFolder,fps=5)
@@ -133,6 +137,7 @@ if __name__ == "__main__":
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runExactExplainer(model, obs,backgroundData,n_samples=300)
                 logging.info(f"shap_values: {shap_values}")
+                
                 
             
             if DEBUG and RUN_BASELINE_ACTION:

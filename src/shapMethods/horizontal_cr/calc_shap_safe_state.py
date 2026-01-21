@@ -73,7 +73,6 @@ def runExactExplainer(model, observation):
     # 3. MODEL WRAPPER: The "Real" Masker
     # This intercepts the array from SHAP, builds the dictionary, and calls your model.
     def custom_model_wrapper(X_batch):
-        print(len(X_batch))
         # X_batch is a 2D array of indices, e.g.:
         # [[0, 1, 2],
         #  [-1, 1, 2],  <-- Intruder 0 is masked here
@@ -145,7 +144,7 @@ if __name__ == "__main__":
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
-    n_eps = 15
+    n_eps = 30
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
@@ -165,18 +164,9 @@ if __name__ == "__main__":
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runExactExplainer(model, obs)
-                print(shap_values)
-                
-                # exit if there is a shap value greater than 1 + abs(baseline)
-                for sv in shap_values.values[0]:
-                    if abs(sv) > 1 + abs(shap_values.base_values[0][0]):
-                        print("Exiting due to large SHAP value")
-                        exit(0)
-                    if sv + shap_values.base_values[0][0] < -2 or sv + shap_values.base_values[0][0] > 2:
-                        print("Exiting due to negative contribution to safe action")
-                        exit(0)
                 
                 logging.info(f"shap_values: {shap_values}")
+                
                 
             obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
             

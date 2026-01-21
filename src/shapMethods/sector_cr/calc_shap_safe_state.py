@@ -138,8 +138,8 @@ def runExactExplainer(model, observation):
 
 if __name__ == "__main__":
     
-    JOBID = "4676447" # VEC env SAC
-    #JOBID = "4706792"
+    #JOBID = "4676447" # VEC env SAC
+    JOBID = "4706792"
     SEED = 42
     color_mode = "default"  #"clipped"  #"scaled"
     #plots/jobid/gifs/
@@ -159,10 +159,10 @@ if __name__ == "__main__":
     
     
     
-    #modelpath = f"models/{JOBID}/HorizontalCREnv-v0_SafeObservationWrapper/HorizontalCREnv-v0_SAC_baseline_model_mp.zip"
-    modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
+    modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_TD3_singleEnv_baseline_model_mp.zip"
+    #modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
-    model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
+    model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
     #model = DDPG.load(modelpath)
     max_steps = 50
     n_eps = 6
@@ -186,7 +186,12 @@ if __name__ == "__main__":
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runExactExplainer(model, obs)
+                print(shap_values)
                 logging.info(f"shap_values: {shap_values}")
+                
+                for val in shap_values.values[0]:
+                    if np.abs(val[0])>2 or np.abs(val[1])>2:
+                        exit(1)
                 
                 
          
