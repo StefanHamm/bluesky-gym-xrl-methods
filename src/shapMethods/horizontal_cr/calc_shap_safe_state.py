@@ -123,6 +123,7 @@ if __name__ == "__main__":
     JOBID = "4675598"
     SEED = 42
     EXPORT = False
+    PRINT_ACTION_PATH = True
     color_mode = "default"  #"clipped"  #"scaled"EX
     #plots/jobid/gifs/
     gifFolder= None
@@ -135,15 +136,18 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     env.reset(seed=SEED)
-    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode)
-    
-    
     
     #modelpath = f"models/{JOBID}/HorizontalCREnv-v0_SafeObservationWrapper/HorizontalCREnv-v0_SAC_baseline_model_mp.zip"
     modelpath = f"models/{JOBID}/HorizontalCREnv-v0/HorizontalCREnv-v0_SAC_singleEnv_baseline_model_mp.zip"
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
-    model = SAC.load(modelpath, env=saliencyEnv,device='cpu')
+    model = SAC.load(modelpath,device='cpu')
     #model = DDPG.load(modelpath)
+    
+    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=True)
+    
+    
+    
+   
     n_eps = 30
     for i in range(n_eps):
         done = truncated = False

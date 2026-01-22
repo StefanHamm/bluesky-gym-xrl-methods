@@ -6,6 +6,7 @@ import bluesky as bs
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import os
+import copy
 import imageio
 
 
@@ -18,7 +19,7 @@ import imageio
 
 class SaliencyHorizontalControl(gym.Wrapper):
     
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped"):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",plot_action_path=False,plot_safe_path=False,model=None):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -59,13 +60,90 @@ class SaliencyHorizontalControl(gym.Wrapper):
             os.makedirs(self.gifs_path, exist_ok=True)
         self.episode_counter = 0
         self.step_counter = 0
+        self.plot_action_path = plot_action_path
+        self.plot_safe_path = plot_safe_path
+        self.model = model
+        self.path_coordinates = []
+        self.safe_action_path = []
         
         
+    def _action_rollout_path(self):
+        # copy the simulator
+        ac_idx = bs.traf.id2idx('KL001')
+        for step in range(100):  # simulate 100 steps ahead
+            obs = self.unwrapped._get_obs()
+            action = self.model.predict(obs, deterministic=True)[0]
+            self.unwrapped._get_action(action)
+            for i in range(ACTION_FREQUENCY):
+                bs.sim.step()
+                # store ownship state in path_coordinates
+               
+            self.path_coordinates.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
+            # if last coordinate is close to waypoint, stop
+            index = 0
+            for distance in self.unwrapped.waypoint_distance:
+                if distance < DISTANCE_MARGIN and self.unwrapped.wpt_reach[index] != 1:
+                    return
+    
+    def _action_rollout_safe_state_path(self):
+        ac_idx = bs.traf.id2idx('KL001')
+        safe_obs = self.unwrapped._get_obs()
+        safe_obs = {
+            "intruder_distance": np.array([self.safe_vals["dist"]] * NUM_INTRUDERS),
+            "cos_difference_pos": np.array([self.safe_vals["cos"]] * NUM_INTRUDERS),
+            "sin_difference_pos": np.array([self.safe_vals["sin"]] * NUM_INTRUDERS),
+            "x_difference_speed": np.array([self.safe_vals["dx"]] * NUM_INTRUDERS),
+            "y_difference_speed": np.array([self.safe_vals["dy"]] * NUM_INTRUDERS)
+        }
         
+        
+        for step in range(100):  # simulate 100 steps ahead
+            obs = self.unwrapped._get_obs()
+            safe_obs["cos_drift"] = obs["cos_drift"]
+            safe_obs["sin_drift"] = obs["sin_drift"]
+            safe_obs["waypoint_distance"] = obs["waypoint_distance"]
+            action = self.model.predict(safe_obs, deterministic=True)[0]
+            self.unwrapped._get_action(action)
+            for i in range(ACTION_FREQUENCY): #double the steps
+                
+                bs.sim.step()
+            self.safe_action_path.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
+            for distance in self.unwrapped.waypoint_distance:
+                if distance < DISTANCE_MARGIN:
+                    return
+        
+    
+    def _save_traffic_state(self):
+        return {
+            "lat": np.copy(bs.traf.lat),
+            "lon": np.copy(bs.traf.lon),
+            "hdg": np.copy(bs.traf.hdg),
+            "alt": np.copy(bs.traf.alt),
+            "tas": np.copy(bs.traf.tas),
+            "gs": np.copy(bs.traf.gs),
+            "trk": np.copy(bs.traf.trk),
+            "vs": np.copy(bs.traf.vs),
+            "sim_time": bs.sim.simt
+        }
+
+    def _restore_traffic_state(self, state):
+        bs.traf.lat[:] = state["lat"]
+        bs.traf.lon[:] = state["lon"]
+        bs.traf.hdg[:] = state["hdg"]
+        bs.traf.alt[:] = state["alt"]
+        bs.traf.tas[:] = state["tas"]
+        bs.traf.gs[:] = state["gs"]
+        bs.traf.trk[:] = state["trk"]
+        bs.traf.vs[:] = state["vs"]
+        bs.sim.simt = state["sim_time"]
             
             
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        
+        
+        
+        
         
         self.episode_counter += 1
         self.step_counter = 0
@@ -85,6 +163,16 @@ class SaliencyHorizontalControl(gym.Wrapper):
 
         self.unwrapped._generate_conflicts()
         self.unwrapped._generate_waypoint()
+        
+        if self.plot_action_path and self.model is not None:
+            self.path_coordinates = []
+            # copy previous simulator state
+            prev_state = self._save_traffic_state()
+            self._action_rollout_path()
+            self._restore_traffic_state(prev_state)
+            
+            
+        
         observation = self.unwrapped._get_obs()
         info = self.unwrapped._get_info()
 
@@ -95,9 +183,18 @@ class SaliencyHorizontalControl(gym.Wrapper):
             
     def step(self, action, shap_values=None,examplePlane = None):
         self.step_counter += 1
+        if self.plot_safe_path and self.model is not None and self.safe_vals is not None:
+            self.safe_action_path = []
+            # copy previous simulator state
+            prev_state = self._save_traffic_state()
+            self._action_rollout_safe_state_path()
+            self._restore_traffic_state(prev_state)
+            self.unwrapped._get_obs() #resets observation to current state after rollout
         
         self.unwrapped._get_action(action)
         self.last_action = action  # Store the last action
+        
+        
 
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
@@ -136,6 +233,32 @@ class SaliencyHorizontalControl(gym.Wrapper):
 
         return observation, reward, terminated, False, info
     
+    def _draw_path(self,canvas,color,path_coordinates,ac_idx):
+         for i,coord in enumerate(path_coordinates):
+                if i == 0:
+                    continue
+                prev_coord = path_coordinates[i-1]
+                lat1, lon1 = prev_coord
+                lat2, lon2 = coord
+                qdr1, dis1 = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], lat1, lon1)
+                qdr2, dis2 = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], lat2, lon2)
+
+                
+                x_pos1 = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(qdr1))*(dis1 * NM2KM)/200)*self.unwrapped.window_width
+                y_pos1 = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(qdr1))*(dis1 * NM2KM)/200)*self.unwrapped.window_height
+                
+                x_pos2 = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(qdr2))*(dis2 * NM2KM)/200)*self.unwrapped.window_width
+                y_pos2 = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(qdr2))*(dis2 * NM2KM)/200)*self.unwrapped.window_height
+                
+                #print(x_pos1,y_pos1,x_pos2,y_pos2)
+                pygame.draw.line(canvas,
+                    color,
+                    (x_pos1,y_pos1),
+                    (x_pos2,y_pos2),
+                    width = 2
+                )
+        
+    
     def _render_frame(self,shap_values=None,examplePlane=None):
         if self.unwrapped.window is None and self.render_mode == "human":
             pygame.init()
@@ -151,13 +274,22 @@ class SaliencyHorizontalControl(gym.Wrapper):
                     pygame.display.quit()
                 self.close()
                 
+        ac_idx = bs.traf.id2idx('KL001')        
+                  
         max_distance = 200 # width of screen in km
 
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
 
+        if self.plot_action_path and self.model is not None:
+            self._draw_path(canvas,(255,0,0),self.path_coordinates,ac_idx)
+           
+                
+        if self.plot_safe_path and self.model is not None and self.safe_vals is not None:
+            self._draw_path(canvas,(255,0,255),self.safe_action_path,ac_idx)
+                
         # draw ownship
-        ac_idx = bs.traf.id2idx('KL001')
+        
         ac_length = 8
         heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
         heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
