@@ -6,6 +6,8 @@ import copy
 import imageio
 import bluesky as bs
 
+from bluesky_gym.utils.constants import NM2KM, MPS2KT
+from pygame import font
 
 class GeneralSaliency(gym.Wrapper):
     
@@ -210,27 +212,143 @@ class GeneralSaliency(gym.Wrapper):
                 color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
         return color
     
-    def _draw_speed_bar(self,canvas,shap_value,int_qdr,int_dis,px_per_km,bar_width=4,bar_height=20):
-        speed_bar_length = 20
-        speed_bar_width = 4
+    def _draw_intruder_speed_bar(self,canvas,shap_value,x_pos,y_pos,bar_width=4,bar_height=20):
         speed_t = max(-2, min(2, shap_value))/2  # scale to -1 to +1
         
         bar_color = (255, 0, 0) if speed_t > 0 else (0, 0, 255)
-        bar_x = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
-        bar_y = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*px_per_km)
         
         pygame.draw.line(canvas,
             bar_color,
-            (bar_x + 10, bar_y),
-            (bar_x + 10, bar_y - speed_t * bar_height),
+            (x_pos + 10, y_pos),
+            (x_pos + 10, y_pos - speed_t * bar_height),
             width = bar_width
         )
         
         # draw a rectangle around the speed bar 
-        bar_rec_x = bar_x + 10 - bar_height//2
-        bar_rec_y = bar_y - bar_height
+        bar_rec_x = x_pos + 10 - bar_height//2
+        bar_rec_y = y_pos - bar_height
         pygame.draw.rect(canvas,
             (0,0,0),
             (bar_rec_x, bar_rec_y, bar_width+1, bar_height * 2),
             width = 1
         )
+        
+    def _seperation_distance(self,ac1_idx, ac2_idx):
+        lat1, lon1 = bs.traf.lat[ac1_idx], bs.traf.lon[ac1_idx]
+        lat2, lon2 = bs.traf.lat[ac2_idx], bs.traf.lon[ac2_idx]
+        
+        separation = bs.tools.geo.kwikdist(lat1, lon1, lat2, lon2)
+        return separation
+        
+    def _calculate_xpos_ypos(self,lat,lon,*args,**kwargs)->tuple:
+        # This method should should convert the lat/lon to x/y positions on the pygame canvas
+        # Since it depends on the specific environment and rendering setup, we leave it unimplemented here.
+        # The user should implement this method in the subclass.
+        
+        raise NotImplementedError("This method needs to be implemented in the subclass.")
+        
+    def _draw_path(self,canvas,color,path_coordinates,ac_idx):
+         for i,coord in enumerate(path_coordinates):
+                if i == 0:
+                    continue
+                prev_coord = path_coordinates[i-1]
+                lat1, lon1 = prev_coord
+                lat2, lon2 = coord
+                
+                x_pos1,y_pos1 = self._calculate_xpos_ypos(lat1,lon1)
+
+                
+                x_pos2,y_pos2 = self._calculate_xpos_ypos(lat2,lon2)
+                #print(x_pos1,y_pos1,x_pos2,y_pos2)
+                pygame.draw.line(canvas,
+                    color,
+                    (x_pos1,y_pos1),
+                    (x_pos2,y_pos2),
+                    width = 2
+                )
+    
+    def _draw_waypoints(self,canvas,waypoints_lat:list,waypoints_lon:list,waypoints_reach:list,color=(0,255,0)):
+        for lat,lon,reach in zip(waypoints_lat,waypoints_lon,waypoints_reach):
+            if reach:
+                color = (155,155,155)
+            else:
+                color = (255,255,255)
+
+            self._draw_single_waypoint_with_color(canvas,lat,lon,color)
+            
+    def _draw_single_waypoint_with_color(self,canvas,lat,lon,color=(0,255,0)):
+        x_pos,y_pos = self._calculate_xpos_ypos(lat,lon)
+
+        pygame.draw.circle(
+            canvas, 
+            color,
+            (x_pos,y_pos),
+            radius = 4,
+            width = 0
+        )
+        
+        pygame.draw.circle(
+            canvas, 
+            color,
+            (x_pos,y_pos),
+            radius = 7, # check if this radius is ok
+            width = 2
+        )
+        
+    def _draw_intruders_default(self,canvas,number_intruders):
+        for int_idx in range(1,number_intruders+1):
+            lat,long = bs.traf.lat[int_idx], bs.traf.lon[int_idx]
+           
+            
+    def _draw_single_intruder_with_color(self,canvas,,color=(255,0,0)):
+        
+        
+        
+    def _draw_action_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,bar_height,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
+        
+       
+        for i in range(bar_length):
+            # Scale from -1 (left) to +1 (right)
+            value = (i / bar_length) * 2 - 1
+            val = max(-1, min(1, value))
+            if val < 0:
+                t = -val
+                color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
+            else:
+                t = val
+                color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
+                
+            if orientation == "horizontal":
+                pygame.draw.line(canvas, color, (x_pos + i, y_pos), (x_pos + i, y_pos + bar_height-3), 1)
+            elif orientation == "vertical":
+                pygame.draw.line(canvas, color, (x_pos, y_pos + i), (x_pos + bar_height-3, y_pos + i), 1)
+        
+        pos_text = font.render(pos_text, True, (0,0,0))
+        neg_text = font.render(neg_text, True, (0,0,0))
+        title_text = font.render(title_text, True, (0,0,0))
+        
+        if orientation == "horizontal":
+            
+            shap_sum += 2
+            shap_sum = (shap_sum / 4) * bar_length  # scale to bar length
+            pygame.draw.line(canvas, (0,0,0), (x_pos + int(shap_sum), y_pos), (x_pos + int(shap_sum), y_pos + bar_height-3), 3)
+            pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, bar_length, bar_height), 2)
+
+            #draw text
+            
+            canvas.blit(neg_text, (x_pos - 10, y_pos + bar_height + 5))
+            canvas.blit(pos_text, (x_pos + bar_length - 50, y_pos + bar_length + 5))
+            canvas.blit(title_text, (x_pos, y_pos - 20))
+
+        elif orientation == "vertical":
+            shap_sum += 2
+            shap_sum = (shap_sum / 4) * bar_height  # scale to bar length
+            pygame.draw.line(canvas, (0,0,0), (x_pos, y_pos + int(shap_sum)), (x_pos + bar_height-3, y_pos + int(shap_sum)), 3)
+            pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, bar_height, bar_length), 2)
+            
+            #draw text
+            canvas.blit(neg_text, (x_pos + bar_height + 5, y_pos + bar_length - 10))
+            canvas.blit(pos_text, (x_pos + bar_height + 5, y_pos))
+            canvas.blit(title_text, (x_pos, y_pos - 20))
+            
+    
