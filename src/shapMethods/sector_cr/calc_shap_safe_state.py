@@ -186,7 +186,6 @@ if __name__ == "__main__":
             if step % 1 == 0:
                 logging.info(f"Episode {i+1} finished.")
                 shap_values = runExactExplainer(model, obs)
-                print(shap_values)
                 logging.info(f"shap_values: {shap_values}")
                 
                 for val in shap_values.values[0]:
