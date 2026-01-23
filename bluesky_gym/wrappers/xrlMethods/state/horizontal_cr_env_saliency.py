@@ -139,12 +139,7 @@ class SaliencyHorizontalControl(gym.Wrapper):
             
             
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        
-        
-        
-        
-        
+        obs,inf = super().reset(seed=seed)
         self.episode_counter += 1
         self.step_counter = 0
         
@@ -152,17 +147,7 @@ class SaliencyHorizontalControl(gym.Wrapper):
             # create folder inside frames for this episode
             self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
             os.makedirs(self.episode_frames_path, exist_ok=True)
-        
-        bs.traf.reset()
-
-        self.unwrapped.total_reward = 0
-        self.unwrapped.total_intrusions = 0
-        self.unwrapped.average_drift = np.array([])
-
-        bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
-
-        self.unwrapped._generate_conflicts()
-        self.unwrapped._generate_waypoint()
+    
         
         if self.plot_action_path and self.model is not None:
             self.path_coordinates = []
@@ -170,16 +155,14 @@ class SaliencyHorizontalControl(gym.Wrapper):
             prev_state = self._save_traffic_state()
             self._action_rollout_path()
             self._restore_traffic_state(prev_state)
+            # update obs after rollout
+            self.unwrapped._get_obs()
             
-            
-        
-        observation = self.unwrapped._get_obs()
-        info = self.unwrapped._get_info()
 
         if self.unwrapped.render_mode == "human":
             self._render_frame()
 
-        return observation, info
+        return obs,inf
             
     def step(self, action, shap_values=None,examplePlane = None):
         self.step_counter += 1

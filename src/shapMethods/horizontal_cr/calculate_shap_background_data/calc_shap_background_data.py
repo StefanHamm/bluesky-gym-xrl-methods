@@ -101,10 +101,10 @@ if __name__ == "__main__":
     color_mode = "default"  #"clipped"  #"scaled"
     if EXPORT: 
         if DEBUG:
-            gifFolder = f"./plots/{JOBID}/shapBackgroundDataDebug/"
+            gifFolder = f"./plots/{JOBID}/{env_name}/shapBackgroundDataDebug/"
             logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         else:
-            gifFolder = f"./plots/{JOBID}/shapBackgroundData/{color_mode}/"
+            gifFolder = f"./plots/{JOBID}/{env_name}/shapBackgroundData/{color_mode}/"
         
             logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")

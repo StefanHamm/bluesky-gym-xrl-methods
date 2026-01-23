@@ -1,11 +1,5 @@
 """
-This file is an example train and test loop for the different environments that
-uses multiprocessing through the use of vectorised environments.
-Note that multiprocessing doesn't necessarily result in faster training. It is
-highly dependent on the environment and algorithm combination. If the algorithm
-is able to train over a batch of observations, multiprocessing should lead to
-faster training.
-Selecting different environments is done through setting the 'env_name' variable.
+This file trains a basline model using a single environment and a specified algorithm.
 """
 
 import gymnasium as gym
@@ -18,24 +12,29 @@ import sys
 import bluesky_gym
 import bluesky_gym.envs
 import os
-
+import collections
 from bluesky_gym.utils import logger
+import numpy as np
+import random
+import torch
+
+def set_global_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
 
 bluesky_gym.register_envs()
 
-#env_name = 'SectorCREnv-v0'
-
 all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
-num_cpu = 2
-
-
 
 def make_env():
     """
     Utility function for multiprocessed env.
     """
-    global env_counter
     if args.workdir:
         os.makedirs(args.workdir, exist_ok=True)
     # ...existing code...
@@ -43,27 +42,17 @@ def make_env():
         env = gym.make(env_name, render_mode=None)
     else:
         env = gym.make(env_name, render_mode=None, workdir=args.workdir)
-# ...existing code...
-    # Set a different seed for each created environment.
-    env.reset(seed=env_counter)
-    env_counter +=1 
+
     return env
 
-# Initialize logger
-# log_dir = f'./logs/{env_name}/'
-# file_name = f'{env_name}_{str(algorithm.__name__)}.csv'
-# csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
+
 
 TRAIN = True
-EVAL_EPISODES = 10
-TOTAL_TIMESTEPS = 1e2
-# Initialise the environment counter
-env_counter = 0
+
 
 
 
 if __name__ == "__main__":
-    MODEL_SEED = 42
     global env_name
     # 1. Parse Arguments
     parser = argparse.ArgumentParser()
@@ -75,6 +64,10 @@ if __name__ == "__main__":
     parser.add_argument("--make_vec_env", action='store_true', help="Use vectorized environment")
     parser.add_argument("--jobdir", type=str, default=None, help="Job directory for logs")
     parser.add_argument("--jobid", type=str, default=None, help="Job identifier")
+    parser.add_argument("--save_best_model", action='store_true', help="Save best model during training")
+    parser.add_argument("--model_seed", type=int, default=42, help="Random seed for model")
+    parser.add_argument("--env_seed", type=int, default=0, help="Random seed for environment")
+    parser.add_argument("--global_seed",type=int,default=42 , help="Set global random seed, for randomness that may be outside model/env")
     args = parser.parse_args()
 
     # 2. Select specific config
@@ -99,28 +92,19 @@ if __name__ == "__main__":
     file_name = f'{env_name}_{str(algorithm.__name__)}_{suffix}_baseline.csv'
     csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
     
-    # Reset global counter for this specific process
-    env_counter = 0 
-    
     if TRAIN:
         if args.make_vec_env:
             print("Using vectorized environment")
-            env = make_vec_env(make_env, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
+            env = make_vec_env(make_env,seed=args.env_seed, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
         else:
             print("Using single environment")
             env = make_env()
+            env.reset(seed=args.env_seed)
         
-        if algorithm == RecurrentPPO:
-            policy_type = "MultiInputLstmPolicy"
-        else:
-            policy_type = "MultiInputPolicy"
+    
+        policy_type = "MultiInputPolicy"
         
-        if policy_type in ["SAC","TD3","DDPG"]:
-            buffer_size = int(max(1e6,args.total_timesteps))
-            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, buffer_size=buffer_size, seed=MODEL_SEED)
-        else:
-        
-            model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=MODEL_SEED)
+        model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed)
         
         
         model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=False)

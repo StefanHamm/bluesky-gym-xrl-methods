@@ -27,7 +27,6 @@ class ActionHeatmapWrapper(gym.Wrapper):
         self.grid_spacing_km = grid_spacing_km 
         self.draw_action_heatmap = draw_action_heatmap
         self.fps = fps
-
         # create working directory for gif creation
         self.export_gifs_path = export_gifs_path
         if self.export_gifs_path is not None:
@@ -41,7 +40,8 @@ class ActionHeatmapWrapper(gym.Wrapper):
         self.episode_counter = 0
         self.step_counter = 0
     
-    def reset(self, seed=None, options=None):       
+    def reset(self, seed=None, options=None):     
+        obs,inf = super().reset(seed=seed, options=options)  
         self.episode_counter += 1
         self.step_counter = 0
         
@@ -49,8 +49,10 @@ class ActionHeatmapWrapper(gym.Wrapper):
             # create folder inside frames for this episode
             self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
             os.makedirs(self.episode_frames_path, exist_ok=True)
-        
-        return super().reset(seed=seed, options=options)
+        if self.unwrapped.render_mode == "human":
+            self._render_frame()
+
+        return obs,inf
 
     def build_observation_at_offset(self,offset_x_nm, offset_y_nm):
         """

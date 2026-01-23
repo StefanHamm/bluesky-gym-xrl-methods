@@ -122,16 +122,20 @@ if __name__ == "__main__":
     #JOBID = "4676447"
     JOBID = "4675598"
     SEED = 42
-    EXPORT = False
+    EXPORT = True
     PRINT_ACTION_PATH = True
+    PLOT_SAFE_PATH = True
     color_mode = "default"  #"clipped"  #"scaled"EX
     #plots/jobid/gifs/
     gifFolder= None
     if EXPORT:
         if DEBUG:
-            gifFolder = f"./plots/{JOBID}/shapSafeStateDebug/"
+            gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeStateDebug/"
+        elif PRINT_ACTION_PATH: 
+            gifFolder = f"./plots/{JOBID}/{env_name}/withActionPath/shapSafeState/{color_mode}/"
         else:
-            gifFolder = f"./plots/{JOBID}/shapSafeState/{color_mode}/"
+            
+            gifFolder = f"./plots/{JOBID}/{env_name}/shapSafeState/{color_mode}/"
     
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
@@ -143,17 +147,19 @@ if __name__ == "__main__":
     model = SAC.load(modelpath,device='cpu')
     #model = DDPG.load(modelpath)
     
-    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=True)
+    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=PLOT_SAFE_PATH)
     
     
     
    
-    n_eps = 30
+    n_eps = 20
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset()
         step = 0
-
+        # skip first 10 epsiodes
+        # if i < 10:
+        #     continue
         while not (done or truncated):
             step+=1
             

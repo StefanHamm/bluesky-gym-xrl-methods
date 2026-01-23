@@ -22,9 +22,9 @@ if __name__ == "__main__":
     env_name = 'SectorCREnv-v0'
 
     if DEBUG:
-        gifFolder = f"./plots/{JOBID}/actionHeatmap/"
+        gifFolder = f"./plots/{JOBID}/{env_name}/actionHeatmap/"
     else:
-        gifFolder = f"./plots/{JOBID}/actionHeatmap/"
+        gifFolder = f"./plots/{JOBID}/{env_name}/actionHeatmap/"
 
     env = gym.make(env_name,render_mode='human')
     env.reset(seed=SEED)

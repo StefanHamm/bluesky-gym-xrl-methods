@@ -159,7 +159,7 @@ if __name__ == "__main__":
     
     
     
-    modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_TD3_singleEnv_baseline_model_mp.zip"
+    modelpath = f"models/{JOBID}/{env_name}/SectorCREnv-v0_TD3_singleEnv_baseline_model_mp.zip"
     #modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
     model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
