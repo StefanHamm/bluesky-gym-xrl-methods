@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("--global_seed",type=int,default=42 , help="Set global random seed, for randomness that may be outside model/env")
     args = parser.parse_args()
 
+    set_global_seed(args.global_seed)
     # 2. Select specific config
     try:
         env_name = all_envs[args.env_idx]

@@ -15,7 +15,7 @@ mkdir -p logs/${SLURM_ARRAY_JOB_ID}
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate blueskyGym
 
-TOTAL_TIMESTEPS=2500000
+TOTAL_TIMESTEPS=2000000
 
 ENV_IDX=$((SLURM_ARRAY_TASK_ID / 5))
 ALGO_IDX=$((SLURM_ARRAY_TASK_ID % 5))
