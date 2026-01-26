@@ -7,6 +7,7 @@ to the corresponding file as indicated in the workshop.
 import gymnasium as gym
 from stable_baselines3 import SAC,TD3,DDPG,PPO
 import bluesky_gym
+import bluesky as bs
 import bluesky_gym.envs
 import shap
 import numpy as np
@@ -14,6 +15,7 @@ import matplotlib.pyplot as plt
 import logging
 import copy
 from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
+from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliencyV2 import SaliencyHorizontalControlV2
 
 from bluesky_gym.utils import logger
 bluesky_gym.register_envs()
@@ -25,11 +27,11 @@ env_name = 'HorizontalCREnv-v0'
 DEBUG = False
 
 SAFE_VALS = {
-            "dist": 0.5,
-            "cos": -1.0,  # Behind
-            "sin": 0.0,
-            "dx": 1.0,    # Flying away
-            "dy": 1.0
+            "intruder_distance": 0.5,
+            "cos_difference_pos": -1.0,  # Behind
+            "sin_difference_pos": 0.0,
+            "x_difference_speed": 1.0,    # Flying away
+            "y_difference_speed": 1.0
         }
 
 def DEBUG_baselineObservation(observation):
@@ -94,11 +96,11 @@ def runExactExplainer(model, observation):
             masked_indices = np.where(row_indices==0)[0]
             
             if len(masked_indices) > 0:
-                obs_batch["intruder_distance"][i, masked_indices] = SAFE_VALS["dist"]
-                obs_batch["cos_difference_pos"][i, masked_indices] = SAFE_VALS["cos"]
-                obs_batch["sin_difference_pos"][i, masked_indices] = SAFE_VALS["sin"]
-                obs_batch["x_difference_speed"][i, masked_indices] = SAFE_VALS["dx"]
-                obs_batch["y_difference_speed"][i, masked_indices] = SAFE_VALS["dy"]
+                obs_batch["intruder_distance"][i, masked_indices] = SAFE_VALS["intruder_distance"]
+                obs_batch["cos_difference_pos"][i, masked_indices] = SAFE_VALS["cos_difference_pos"]
+                obs_batch["sin_difference_pos"][i, masked_indices] = SAFE_VALS["sin_difference_pos"]
+                obs_batch["x_difference_speed"][i, masked_indices] = SAFE_VALS["x_difference_speed"]
+                obs_batch["y_difference_speed"][i, masked_indices] = SAFE_VALS["y_difference_speed"]
             
         # 3. Batch Predict
         # Single call for all permutations
@@ -147,7 +149,7 @@ if __name__ == "__main__":
     model = SAC.load(modelpath,device='cpu')
     #model = DDPG.load(modelpath)
     
-    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=PLOT_SAFE_PATH)
+    saliencyEnv = SaliencyHorizontalControlV2(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=PLOT_SAFE_PATH)
     
     
     
@@ -170,12 +172,11 @@ if __name__ == "__main__":
                 action, _states = model.predict(obs, deterministic=True)
             shap_values = None
             logging.info(f"Action taken: {action}")
-            
-            if step % 1 == 0:
-                logging.info(f"Episode {i+1} finished.")
-                shap_values = runExactExplainer(model, obs)
-                
-                logging.info(f"shap_values: {shap_values}")
+            shap_values = runExactExplainer(model, obs)
+            # if step % 10 == 0:
+            #     # set the agents heading to +120 degrees
+            #     ac_idx = bs.traf.id2idx('KL001')
+            #     bs.traf.hdg[ac_idx] = 120.0
                 
                 
             obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)

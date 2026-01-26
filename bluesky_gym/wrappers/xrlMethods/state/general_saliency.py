@@ -7,9 +7,9 @@ import imageio
 import bluesky as bs
 
 from bluesky_gym.utils.constants import NM2KM, MPS2KT
-from pygame import font
 
-class GeneralSaliency(gym.Wrapper):
+
+class SaliencyMapV1Wrapper(gym.Wrapper):
     
     def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",plot_action_path=False,plot_safe_path=False,model=None):
         """
@@ -58,16 +58,20 @@ class GeneralSaliency(gym.Wrapper):
         self.model = model
         self.path_coordinates = []
         self.safe_action_path = []
-        self.num_intruders = 0
-        self.action_frequency = 0
-        self.distance_margin = 0.0
+        self.font = pygame.font.SysFont(None, 24)
+        self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
+
+
         
         
     def _create_safe_observation(self,obs):
+        safe_obs = copy.deepcopy(obs)
         for key in self.safe_vals.keys():
-            if key in obs:
-                obs[key] = np.array([self.safe_vals[key]] *  self.num_intruders)
-        return obs
+            if key in safe_obs and key in obs:
+                safe_obs[key] = np.array([self.safe_vals[key]] *  self.num_intruders)
+            else:
+                print(f"Key {key} not found in observation.")
+        return safe_obs
     
     def _update_safe_observation(self,safe_obs,obs):
         for key in obs.keys():
@@ -75,45 +79,45 @@ class GeneralSaliency(gym.Wrapper):
                 safe_obs[key] = obs[key]
         return safe_obs
         
+    def calculate_projected_path(self,safe=False,has_waypoints=False):
+        prev_state = self._save_traffic_state()
+        if safe:
+            self.safe_action_path = []
+        else:
+            self.path_coordinates = []
+        self.simulate_rollout(safe,has_waypoints)
+        self._restore_traffic_state(prev_state)
+        self.unwrapped._get_obs() #reset internal obs state
         
         
-    def _action_rollout_path(self):
+    def simulate_rollout(self,safe=False,has_waypoints=False):
         # copy the simulator
         ac_idx = bs.traf.id2idx('KL001')
-        for step in range(30):  # simulate 100 steps ahead
+        obs = self.unwrapped._get_obs()
+        safe_obs = self._create_safe_observation(obs)
+        
+        for step in range(50):  # simulate 100 steps ahead
             obs = self.unwrapped._get_obs()
+            if safe:
+                obs = self._update_safe_observation(safe_obs,obs)
             action = self.model.predict(obs, deterministic=True)[0]
             self.unwrapped._get_action(action)
             for i in range(self.action_frequency):
                 bs.sim.step()
                 # store ownship state in path_coordinates
-               
-            self.path_coordinates.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
+            
+            if safe:
+                self.safe_action_path.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
+            else:
+                self.path_coordinates.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
             # if last coordinate is close to waypoint, stop
             index = 0
-            for distance in self.unwrapped.waypoint_distance:
-                if distance < self.distance_margin and self.unwrapped.wpt_reach[index] != 1:
-                    return
-    
-    def _action_rollout_safe_state_path(self):
-        ac_idx = bs.traf.id2idx('KL001')
-        obs = self.unwrapped._get_obs()
-        safe_obs = self._create_safe_observation(safe_obs)
+            if has_waypoints:
+                for distance in self.unwrapped.waypoint_distance:
+                    if distance < self.distance_margin and self.unwrapped.wpt_reach[index] != 1:
+                        return
         
-        
-        for step in range(30):  # simulate 100 steps ahead
-            obs = self.unwrapped._get_obs()
-            safe_obs = self._update_safe_observation(safe_obs,obs)
-            action = self.model.predict(safe_obs, deterministic=True)[0]
-            self.unwrapped._get_action(action)
-            for i in range(self.action_frequency): #double the steps
-                
-                bs.sim.step()
-            self.safe_action_path.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
-            for distance in self.unwrapped.waypoint_distance:
-                if distance < self.action_frequency:
-                    return
-        
+
     
     def _save_traffic_state(self):
         return {
@@ -154,12 +158,21 @@ class GeneralSaliency(gym.Wrapper):
                     pygame.display.quit()
                 self.close()
                 
+    def export_episode_gif(self):
+        if self.export_gifs_path is not None:
+                # export gif from saved frames
+                gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
+                images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
+                imageio.mimsave(gif_filename, images, fps=self.fps)
+
+                
     def _post_render(self,canvas):
         self.unwrapped.window.blit(canvas, canvas.get_rect())
         pygame.display.update()
         self.unwrapped.clock.tick(self.metadata["render_fps"])
 
-        if self.export_gifs_path is not None:
+        if self.export_gifs_path is not None and not self.frame_saved:
+            self.frame_saved = True
             # save frame to episode frames folder use the current step count as filename
             frame_filename = os.path.join(self.episode_frames_path, f"frame_{self.step_counter}.png")
             try:
@@ -168,7 +181,7 @@ class GeneralSaliency(gym.Wrapper):
                 print(f"Error saving frame {self.step_counter} of episode {self.episode_counter}: {e}")
                 
     def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value):
-        color = (0,0,0)
+        color = (80,80,80)
         if self.color_mode == self.color_map["quantitized"]:
             val = np.clip(shap_value, -1, 1)
             if val < -0.75:
@@ -212,6 +225,19 @@ class GeneralSaliency(gym.Wrapper):
                 color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
         return color
     
+    def _draw_debug_menue(self,canvas,x_pos,y_pos,action_taken:list,shap_sums:list=None,baseline_values:list=None):
+        formatted_sums = ", ".join(f"{x:.3f}" for x in shap_sums)
+        formatted_baselines = ", ".join(f"{x:.3f}" for x in baseline_values)
+        formatted_action_taken = ", ".join(f"{x:.3f}" for x in action_taken)
+        sum_text = self.font.render(f"Sum of SHAP values: {formatted_sums}", True, (0,0,0))
+        canvas.blit(sum_text, (x_pos, y_pos - 50))
+        baseline_text = self.font.render(f"Baseline: {formatted_baselines}", True, (0,0,0))
+        canvas.blit(baseline_text, (x_pos, y_pos - 70))
+        action_taken_text = self.font.render(f"Action taken: {formatted_action_taken}", True, (0,0,0))
+        canvas.blit(action_taken_text, (x_pos, y_pos - 90))
+        legend_text = self.font.render("Green line: Heading w/o other aircrafts", True, (0,100,0))
+        canvas.blit(legend_text, (x_pos, y_pos - 110))
+    
     def _draw_intruder_speed_bar(self,canvas,shap_value,x_pos,y_pos,bar_width=4,bar_height=20):
         speed_t = max(-2, min(2, shap_value))/2  # scale to -1 to +1
         
@@ -247,7 +273,7 @@ class GeneralSaliency(gym.Wrapper):
         
         raise NotImplementedError("This method needs to be implemented in the subclass.")
         
-    def _draw_path(self,canvas,color,path_coordinates,ac_idx):
+    def _draw_path(self,canvas,color,path_coordinates):
          for i,coord in enumerate(path_coordinates):
                 if i == 0:
                     continue
@@ -266,44 +292,8 @@ class GeneralSaliency(gym.Wrapper):
                     (x_pos2,y_pos2),
                     width = 2
                 )
-    
-    def _draw_waypoints(self,canvas,waypoints_lat:list,waypoints_lon:list,waypoints_reach:list,color=(0,255,0)):
-        for lat,lon,reach in zip(waypoints_lat,waypoints_lon,waypoints_reach):
-            if reach:
-                color = (155,155,155)
-            else:
-                color = (255,255,255)
 
-            self._draw_single_waypoint_with_color(canvas,lat,lon,color)
-            
-    def _draw_single_waypoint_with_color(self,canvas,lat,lon,color=(0,255,0)):
-        x_pos,y_pos = self._calculate_xpos_ypos(lat,lon)
-
-        pygame.draw.circle(
-            canvas, 
-            color,
-            (x_pos,y_pos),
-            radius = 4,
-            width = 0
-        )
-        
-        pygame.draw.circle(
-            canvas, 
-            color,
-            (x_pos,y_pos),
-            radius = 7, # check if this radius is ok
-            width = 2
-        )
-        
-    def _draw_intruders_default(self,canvas,number_intruders):
-        for int_idx in range(1,number_intruders+1):
-            lat,long = bs.traf.lat[int_idx], bs.traf.lon[int_idx]
            
-            
-    def _draw_single_intruder_with_color(self,canvas,,color=(255,0,0)):
-        
-        
-        
     def _draw_action_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,bar_height,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
         
        
@@ -323,9 +313,14 @@ class GeneralSaliency(gym.Wrapper):
             elif orientation == "vertical":
                 pygame.draw.line(canvas, color, (x_pos, y_pos + i), (x_pos + bar_height-3, y_pos + i), 1)
         
-        pos_text = font.render(pos_text, True, (0,0,0))
-        neg_text = font.render(neg_text, True, (0,0,0))
-        title_text = font.render(title_text, True, (0,0,0))
+        pos_text = self.font.render(pos_text, True, (0,0,0))
+        neg_text = self.font.render(neg_text, True, (0,0,0))
+        title_text = self.font.render(title_text, True, (0,0,0))
+        
+        # Get dimensions
+        pos_w, pos_h = pos_text.get_size()
+        neg_w, neg_h = neg_text.get_size()
+        title_w, title_h = title_text.get_size()
         
         if orientation == "horizontal":
             
@@ -336,9 +331,9 @@ class GeneralSaliency(gym.Wrapper):
 
             #draw text
             
-            canvas.blit(neg_text, (x_pos - 10, y_pos + bar_height + 5))
-            canvas.blit(pos_text, (x_pos + bar_length - 50, y_pos + bar_length + 5))
-            canvas.blit(title_text, (x_pos, y_pos - 20))
+            canvas.blit(neg_text, (x_pos , y_pos + bar_height + 5))
+            canvas.blit(pos_text, (x_pos + bar_length - pos_w, y_pos + bar_height + 5))
+            canvas.blit(title_text, (x_pos + (bar_length- title_w)//2, y_pos - 20))
 
         elif orientation == "vertical":
             shap_sum += 2
