@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import logging
 import copy
 from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
-from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliencyV2 import SaliencyHorizontalControlV2
+from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
 
 from bluesky_gym.utils import logger
 bluesky_gym.register_envs()
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     model = SAC.load(modelpath,device='cpu')
     #model = DDPG.load(modelpath)
     
-    saliencyEnv = SaliencyHorizontalControlV2(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=PLOT_SAFE_PATH)
+    saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=PLOT_SAFE_PATH)
     
     
     
