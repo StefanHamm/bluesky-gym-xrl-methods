@@ -227,7 +227,7 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
             except pygame.error as e:
                 print(f"Error saving frame {self.step_counter} of episode {self.episode_counter}: {e}")
                 
-    def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value):
+    def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value) -> tuple[int,int,int]:
         color = (80,80,80)
         if self.color_mode == self.color_map["quantitized"]:
             val = np.clip(shap_value, -1, 1)
@@ -285,7 +285,7 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         legend_text = self.font.render("Green line: Heading w/o other aircrafts", True, (0,100,0))
         canvas.blit(legend_text, (x_pos, y_pos - 110))
     
-    def _draw_intruder_speed_bar(self,canvas,shap_value,x_pos,y_pos,bar_width=4,thickness=20):
+    def _draw_intruder_speed_bar(self,canvas,shap_value,x_pos,y_pos,thickness=4,length=20):
         speed_t = max(-2, min(2, shap_value))/2  # scale to -1 to +1
         
         bar_color = (255, 0, 0) if speed_t > 0 else (0, 0, 255)
@@ -293,16 +293,16 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         pygame.draw.line(canvas,
             bar_color,
             (x_pos + 10, y_pos),
-            (x_pos + 10, y_pos - speed_t * thickness),
-            width = bar_width
+            (x_pos + 10, y_pos - speed_t * length),
+            width = thickness
         )
         
         # draw a rectangle around the speed bar 
         bar_rec_x = x_pos + 10 - thickness//2
-        bar_rec_y = y_pos - thickness
+        bar_rec_y = y_pos - length
         pygame.draw.rect(canvas,
             (0,0,0),
-            (bar_rec_x, bar_rec_y, bar_width+1, thickness * 2),
+            (bar_rec_x, bar_rec_y, thickness+1, length * 2),
             width = 1
         )
         

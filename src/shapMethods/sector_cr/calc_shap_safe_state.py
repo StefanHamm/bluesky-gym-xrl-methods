@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import logging
 import copy
 from bluesky_gym.wrappers.xrlMethods.state.sector_cr_env_saliency import SaliencySectorControl
-from bluesky_gym.wrappers.xrlMethods.state.sector_cr_env_saliencyV2 import SaliencySectorControlV2
+
 
 from bluesky_gym.utils import logger
 bluesky_gym.register_envs()
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     #model = DDPG.load(modelpath)
 
     
-    saliencyEnv = SaliencySectorControlV2(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=True,plot_safe_path=True,model=model)
+    saliencyEnv = SaliencySectorControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=True,plot_safe_path=True,model=model)
     
     
     
