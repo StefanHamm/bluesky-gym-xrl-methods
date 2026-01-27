@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import logging
 import copy
 from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
-from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
 
 from bluesky_gym.utils import logger
 bluesky_gym.register_envs()

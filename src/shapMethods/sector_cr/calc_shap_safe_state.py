@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import logging
 import copy
 from bluesky_gym.wrappers.xrlMethods.state.sector_cr_env_saliency import SaliencySectorControl
+from bluesky_gym.wrappers.xrlMethods.state.sector_cr_env_saliencyV2 import SaliencySectorControlV2
 
 from bluesky_gym.utils import logger
 bluesky_gym.register_envs()
@@ -153,19 +154,21 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     env = gym.make(env_name, render_mode="human")
     env.reset(seed=SEED,options=options)
-
-    
-    saliencyEnv = SaliencySectorControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode)
-    
-    
     
     modelpath = f"models/{JOBID}/{env_name}/SectorCREnv-v0_TD3_singleEnv_baseline_model_mp.zip"
     #modelpath = f"models/{JOBID}/SectorCREnv-v0/SectorCREnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
     #model = PPO.load(modelpath, env=saliencyEnv,device='cpu')
-    model = TD3.load(modelpath, env=saliencyEnv,device='cpu')
+    model = TD3.load(modelpath,device='cpu')
     #model = DDPG.load(modelpath)
+
+    
+    saliencyEnv = SaliencySectorControlV2(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=True,plot_safe_path=True,model=model)
+    
+    
+    
+    
     max_steps = 50
-    n_eps = 6
+    n_eps = 10
     for i in range(n_eps):
         done = truncated = False
         obs, info = saliencyEnv.reset(options=options)
@@ -197,7 +200,7 @@ if __name__ == "__main__":
             #obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values)
             obs, reward, done, truncated, info = saliencyEnv.step(action[()],shap_values=shap_values)
         if step == max_steps:
-            saliencyEnv.export_gif()
+            saliencyEnv.export_episode_gif()
             
     env.close()
 

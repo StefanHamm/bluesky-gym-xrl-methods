@@ -14,7 +14,7 @@ import imageio
 
 class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
     
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",plot_action_path=False,plot_safe_path=False,model=None):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, plot_safe_path=False, model=None):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -25,8 +25,10 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             export_gifs_path (str, optional): Directory path to export GIFs of episodes. If None, GIFs are not saved.
             fps (int, optional): Frames per second for GIF export and rendering. Default is 5.
             color_mode (str, optional): Color mode for saliency visualization. Use "quantitized", "clipped", or "scaled".
+            plot_action_path (bool, optional): If True, plots the action path taken by the agent.
+            plot_safe_path (bool, optional): If True, plots the safe action path based on safe values.
         """
-        super().__init__(env,safe_vals,debug,export_gifs_path,fps,color_mode,plot_action_path,plot_safe_path,model)
+        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, plot_action_path, plot_safe_path, model)
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = DISTANCE_MARGIN # same for this one
         self.num_intruders = NUM_INTRUDERS
@@ -45,7 +47,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
     
         
         if self.plot_action_path and self.model is not None:
-            self.calculate_projected_path(safe=False,has_waypoints=True)
+            self._calculate_projected_path(safe=False,has_waypoints=True)
             
 
         if self.render_mode == "human":
@@ -56,7 +58,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
     def step(self, action, shap_values=None,examplePlane = None):
         
         if self.plot_safe_path and self.model is not None and self.safe_vals is not None:
-             self.calculate_projected_path(safe=True,has_waypoints=True)
+             self._calculate_projected_path(safe=True,has_waypoints=True)
         
         self.unwrapped._get_action(action)
         self.last_action = action  # Store the last action
@@ -79,11 +81,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
 
         info = self.unwrapped._get_info()
 
-        # bluesky reset?? bs.sim.reset()
         if terminated:
-            for acid in bs.traf.id:
-                idx = bs.traf.id2idx(acid)
-                bs.traf.delete(idx)
             self.export_episode_gif()
 
         return observation, reward, terminated, False, info
@@ -330,18 +328,16 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
 
       
             
-        if self.DEBUG:
-            if shap_values is not None:
-                try:
-                    shap_sums = [float(np.sum(shap_values.values))]
-                except Exception:
-                    shap_sum = float(np.sum(shap_values))
+        if shap_values is not None:
+            shap_sums = [float(np.sum(shap_values.values))]
+            if self.DEBUG:
+                
                 action_taken = [float(self.last_action)]
                 baseline_value = shap_values.base_values[0]
                 self._draw_debug_menue(canvas,legend_x,legend_y,action_taken,shap_sums,baseline_value)
 
-        #draw action bar
-        if shap_values is not None:
-            self._draw_action_bar(canvas,np.sum(shap_values.values),legend_x,legend_y,legend_width,legend_height,"horizontal","Right","Left","Overall Turn Influence")
+            #draw action bar for turn influence
+        
+            self._draw_shap_bar(canvas,shap_sums[0],legend_x,legend_y,legend_width,legend_height,"horizontal","Right","Left","Overall Turn Influence")
 
         self._post_render(canvas)

@@ -43,14 +43,7 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
             self.safe_obs = None
         # create working directory for gif creation
         self.export_gifs_path = export_gifs_path
-        if self.export_gifs_path is not None:
-            os.makedirs(self.export_gifs_path, exist_ok=True)
-        # inside create two folder: frames and gifs
-        if self.export_gifs_path is not None:
-            self.frames_path = os.path.join(self.export_gifs_path, "frames")
-            self.gifs_path = os.path.join(self.export_gifs_path, "gifs")
-            os.makedirs(self.frames_path, exist_ok=True)
-            os.makedirs(self.gifs_path, exist_ok=True)
+        self._init_gif_folders()
         self.episode_counter = 0
         self.step_counter = 0
         self.plot_action_path = plot_action_path
@@ -60,9 +53,18 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         self.safe_action_path = []
         self.font = pygame.font.SysFont(None, 24)
         self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
-
-
         
+  
+
+    def _init_gif_folders(self):
+        if self.export_gifs_path is not None:
+            os.makedirs(self.export_gifs_path, exist_ok=True)
+        # inside create two folder: frames and gifs
+        if self.export_gifs_path is not None:
+            self.frames_path = os.path.join(self.export_gifs_path, "frames")
+            self.gifs_path = os.path.join(self.export_gifs_path, "gifs")
+            os.makedirs(self.frames_path, exist_ok=True)
+            os.makedirs(self.gifs_path, exist_ok=True)
         
     def _create_safe_observation(self,obs):
         safe_obs = copy.deepcopy(obs)
@@ -79,24 +81,33 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
                 safe_obs[key] = obs[key]
         return safe_obs
         
-    def calculate_projected_path(self,safe=False,has_waypoints=False):
+    def _calculate_projected_path(self,safe=False,has_waypoints=False):
+        
         prev_state = self._save_traffic_state()
         if safe:
             self.safe_action_path = []
         else:
             self.path_coordinates = []
-        self.simulate_rollout(safe,has_waypoints)
+        self._simulate_rollout(safe,has_waypoints)
         self._restore_traffic_state(prev_state)
         self.unwrapped._get_obs() #reset internal obs state
+
+
         
         
-    def simulate_rollout(self,safe=False,has_waypoints=False):
+    def _simulate_rollout(self,safe=False,has_waypoints=False):
         # copy the simulator
         ac_idx = bs.traf.id2idx('KL001')
         obs = self.unwrapped._get_obs()
         safe_obs = self._create_safe_observation(obs)
+        max_steps = 30
+        if safe:
+            max_steps = 20
+        else:
+            max_steps = 50
+            
         
-        for step in range(50):  # simulate 100 steps ahead
+        for step in range(max_steps):  # simulate 100 steps ahead
             obs = self.unwrapped._get_obs()
             if safe:
                 obs = self._update_safe_observation(safe_obs,obs)
@@ -121,27 +132,63 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
     
     def _save_traffic_state(self):
         return {
+            # --- Basic Physics ---
             "lat": np.copy(bs.traf.lat),
             "lon": np.copy(bs.traf.lon),
             "hdg": np.copy(bs.traf.hdg),
             "alt": np.copy(bs.traf.alt),
             "tas": np.copy(bs.traf.tas),
+            "cas": np.copy(bs.traf.cas),
             "gs": np.copy(bs.traf.gs),
             "trk": np.copy(bs.traf.trk),
             "vs": np.copy(bs.traf.vs),
-            "sim_time": bs.sim.simt
+            "sim_time": bs.sim.simt,
+
+            # --- Kinematics (Hidden State) ---
+            "ax": np.copy(bs.traf.ax),           # Current acceleration
+            # CHANGE HERE: Use ap.turnphi instead of bank
+            "turnphi": np.copy(bs.traf.ap.turnphi), # Current bank angle
+
+            # --- Intermediate Guidance (The 'Switch' variables) ---
+            "aporasas_tas": np.copy(bs.traf.aporasas.tas),
+            "aporasas_alt": np.copy(bs.traf.aporasas.alt),
+            "aporasas_vs":  np.copy(bs.traf.aporasas.vs),
+            "aporasas_hdg": np.copy(bs.traf.aporasas.hdg),
+
+            # --- Autopilot Intent ---
+            "selspd": np.copy(bs.traf.selspd),
+            "swlnav": np.copy(bs.traf.swlnav),
+            "swvnav": np.copy(bs.traf.swvnav)
         }
 
     def _restore_traffic_state(self, state):
+        # --- Restore Basic Physics ---
         bs.traf.lat[:] = state["lat"]
         bs.traf.lon[:] = state["lon"]
         bs.traf.hdg[:] = state["hdg"]
         bs.traf.alt[:] = state["alt"]
         bs.traf.tas[:] = state["tas"]
-        bs.traf.gs[:] = state["gs"]
+        bs.traf.cas[:] = state["cas"]
+        bs.traf.gs[:]  = state["gs"]
         bs.traf.trk[:] = state["trk"]
-        bs.traf.vs[:] = state["vs"]
-        bs.sim.simt = state["sim_time"]
+        bs.traf.vs[:]  = state["vs"]
+        bs.sim.simt    = state["sim_time"]
+
+        # --- Restore Kinematics ---
+        bs.traf.ax[:] = state["ax"]
+        # CHANGE HERE: Restore to ap.turnphi
+        bs.traf.ap.turnphi[:] = state["turnphi"]
+
+        # --- Restore Guidance ---
+        bs.traf.aporasas.tas[:] = state["aporasas_tas"]
+        bs.traf.aporasas.alt[:] = state["aporasas_alt"]
+        bs.traf.aporasas.vs[:]  = state["aporasas_vs"]
+        bs.traf.aporasas.hdg[:] = state["aporasas_hdg"]
+
+        # --- Restore Autopilot Intent ---
+        bs.traf.selspd[:] = state["selspd"]
+        bs.traf.swlnav[:] = state["swlnav"]
+        bs.traf.swvnav[:] = state["swvnav"]
         
     def _pre_render(self):
         if self.unwrapped.window is None and self.render_mode == "human":
@@ -238,7 +285,7 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         legend_text = self.font.render("Green line: Heading w/o other aircrafts", True, (0,100,0))
         canvas.blit(legend_text, (x_pos, y_pos - 110))
     
-    def _draw_intruder_speed_bar(self,canvas,shap_value,x_pos,y_pos,bar_width=4,bar_height=20):
+    def _draw_intruder_speed_bar(self,canvas,shap_value,x_pos,y_pos,bar_width=4,thickness=20):
         speed_t = max(-2, min(2, shap_value))/2  # scale to -1 to +1
         
         bar_color = (255, 0, 0) if speed_t > 0 else (0, 0, 255)
@@ -246,16 +293,16 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         pygame.draw.line(canvas,
             bar_color,
             (x_pos + 10, y_pos),
-            (x_pos + 10, y_pos - speed_t * bar_height),
+            (x_pos + 10, y_pos - speed_t * thickness),
             width = bar_width
         )
         
         # draw a rectangle around the speed bar 
-        bar_rec_x = x_pos + 10 - bar_height//2
-        bar_rec_y = y_pos - bar_height
+        bar_rec_x = x_pos + 10 - thickness//2
+        bar_rec_y = y_pos - thickness
         pygame.draw.rect(canvas,
             (0,0,0),
-            (bar_rec_x, bar_rec_y, bar_width+1, bar_height * 2),
+            (bar_rec_x, bar_rec_y, bar_width+1, thickness * 2),
             width = 1
         )
         
@@ -294,24 +341,26 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
                 )
 
            
-    def _draw_action_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,bar_height,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
+    def _draw_shap_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,thickness,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
         
        
-        for i in range(bar_length):
-            # Scale from -1 (left) to +1 (right)
-            value = (i / bar_length) * 2 - 1
-            val = max(-1, min(1, value))
-            if val < 0:
-                t = -val
-                color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
-            else:
-                t = val
-                color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
+        self._draw_gradient_bar(canvas, (x_pos,y_pos), bar_length, thickness,orientation == "horizontal")
+       
+        # for i in range(bar_length):
+        #     # Scale from -1 (left) to +1 (right)
+        #     value = (i / bar_length) * 2 - 1
+        #     val = max(-1, min(1, value))
+        #     if val < 0:
+        #         t = -val
+        #         color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
+        #     else:
+        #         t = val
+        #         color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
                 
-            if orientation == "horizontal":
-                pygame.draw.line(canvas, color, (x_pos + i, y_pos), (x_pos + i, y_pos + bar_height-3), 1)
-            elif orientation == "vertical":
-                pygame.draw.line(canvas, color, (x_pos, y_pos + i), (x_pos + bar_height-3, y_pos + i), 1)
+        #     if orientation == "horizontal":
+        #         pygame.draw.line(canvas, color, (x_pos + i, y_pos), (x_pos + i, y_pos + thickness-3), 1)
+        #     elif orientation == "vertical":
+        #         pygame.draw.line(canvas, color, (x_pos, y_pos + i), (x_pos + thickness-3, y_pos + i), 1)
         
         pos_text = self.font.render(pos_text, True, (0,0,0))
         neg_text = self.font.render(neg_text, True, (0,0,0))
@@ -326,24 +375,192 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
             
             shap_sum += 2
             shap_sum = (shap_sum / 4) * bar_length  # scale to bar length
-            pygame.draw.line(canvas, (0,0,0), (x_pos + int(shap_sum), y_pos), (x_pos + int(shap_sum), y_pos + bar_height-3), 3)
-            pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, bar_length, bar_height), 2)
+            pygame.draw.line(canvas, (0,0,0), (x_pos + int(shap_sum), y_pos), (x_pos + int(shap_sum), y_pos + thickness-3), 3)
+            pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, bar_length, thickness), 2)
 
             #draw text
             
-            canvas.blit(neg_text, (x_pos , y_pos + bar_height + 5))
-            canvas.blit(pos_text, (x_pos + bar_length - pos_w, y_pos + bar_height + 5))
+            canvas.blit(neg_text, (x_pos , y_pos + thickness + 5))
+            canvas.blit(pos_text, (x_pos + bar_length - pos_w, y_pos + thickness + 5))
             canvas.blit(title_text, (x_pos + (bar_length- title_w)//2, y_pos - 20))
 
         elif orientation == "vertical":
             shap_sum += 2
-            shap_sum = (shap_sum / 4) * bar_height  # scale to bar length
-            pygame.draw.line(canvas, (0,0,0), (x_pos, y_pos + int(shap_sum)), (x_pos + bar_height-3, y_pos + int(shap_sum)), 3)
-            pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, bar_height, bar_length), 2)
+            shap_sum = (shap_sum / 4) * thickness  # scale to bar length
+            pygame.draw.line(canvas, (0,0,0), (x_pos, y_pos + int(shap_sum)), (x_pos + thickness-3, y_pos + int(shap_sum)), 3)
+            pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, thickness, bar_length), 2)
             
             #draw text
-            canvas.blit(neg_text, (x_pos + bar_height + 5, y_pos + bar_length - 10))
-            canvas.blit(pos_text, (x_pos + bar_height + 5, y_pos))
+            canvas.blit(neg_text, (x_pos + thickness + 5, y_pos + bar_length - 10))
+            canvas.blit(pos_text, (x_pos + thickness + 5, y_pos))
             canvas.blit(title_text, (x_pos, y_pos - 20))
             
+    def _draw_shap_circle(self, canvas, x_pos, y_pos, radius, shap_sums, neg_labels:list=["L","-"], pos_labels:list=["R","+"]):
+        """
+        Draws a circular vector plot representing combined Heading and Speed influence.
+        shaps_sums[0] -> Heading (X-axis)
+        shaps_sums[1] -> Speed   (Y-axis)
+        """
+        # Center of the circle
+        cx = x_pos + radius
+        cy = y_pos + radius
+
+        # Draw background and border
+        pygame.draw.circle(canvas, (240, 240, 240), (cx, cy), radius) # Light grey filled
+        pygame.draw.circle(canvas, (0, 0, 0), (cx, cy), radius, 2)    # Black border
+
+        # Draw Axes (Crosshairs)
+        pygame.draw.line(canvas, (160, 160, 160), (cx - radius, cy), (cx + radius, cy), 1)
+        pygame.draw.line(canvas, (160, 160, 160), (cx, cy - radius), (cx, cy + radius), 1)
+
+        # Draw Grid Rings (optional, e.g. at 50% intensity)
+        pygame.draw.circle(canvas, (200, 200, 200), (cx, cy), int(radius * 0.5), 1)
+
+        # --- Calculate Vector Position ---
+        # Assuming shap sums are roughly in range [-2, 2] like in the bar plots
+        range_val = 2.0
+        
+        # Heading (X-Axis): Negative = Left, Positive = Right
+        h_val = shap_sums[0]
+        
+        # Speed (Y-Axis): Negative = Slow Down, Positive = Speed Up
+        # In Pygame, Y increases downwards, so we invert Y for "Up" to mean "Speed Up"
+        s_val = shap_sums[1]
+
+        # Map to pixels relative to center
+        rel_x = (h_val / range_val) * radius
+        rel_y = -(s_val / range_val) * radius # Note the minus for Y inversion
+
+        # Clamp vector to be inside the circle
+        magnitude = np.sqrt(rel_x**2 + rel_y**2)
+        if magnitude > radius:
+            scale = radius / magnitude
+            rel_x *= scale
+            rel_y *= scale
+
+        px = cx + rel_x
+        py = cy + rel_y
+
+        # Draw Vector Line
+        pygame.draw.line(canvas, (0, 0, 0), (cx, cy), (px, py), 3)
+
+        # Draw Vector Head (Dot)
+        # You can color this dot based on magnitude or keep it simple red
+        pygame.draw.circle(canvas, (255, 0, 0), (int(px), int(py)), 6)
+
+        # --- Labels ---
+        offset = 15
+        
+        # Function to render centered text
+        def draw_label(text, x, y):
+            surf = self.font.render(text, True, (0, 0, 0))
+            w, h = surf.get_size()
+            canvas.blit(surf, (x - w/2, y - h/2))
+
+        # X-Axis Labels (Heading)
+        draw_label(neg_labels[0], cx - radius - offset, cy) # Left
+        draw_label(pos_labels[0], cx + radius + offset, cy) # Right
+        
+        # Y-Axis Labels (Speed)
+        draw_label(pos_labels[1], cx, cy - radius - offset) # Up (Increase)
+        draw_label(neg_labels[1], cx, cy + radius + offset) # Down (Decrease)
+
+    def _draw_gradient_bar(self, canvas, start_pos, length, thickness, horizontal=True):
+        """
+        Draws a gradient bar (Blue -> Grey -> Red) on the canvas.
+        """
+        for i in range(length):
+            # Normalize i to [-1, 1] for color calculation
+            value = (i / length) * 2 - 1
+            val = max(-1, min(1, value))
+            
+            # Get color
+            if val < 0:
+                t = -val
+                color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
+            else:
+                t = val
+                color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
+
+            # Draw slice
+            if horizontal:
+                # x varies, y is constant block
+                pygame.draw.line(canvas, color, (start_pos[0] + i, start_pos[1]), 
+                                              (start_pos[0] + i, start_pos[1] + thickness-3), 1)
+            else:
+                # y varies, x is constant block
+                pygame.draw.line(canvas, color, (start_pos[0], start_pos[1] + length - i), 
+                                              (start_pos[0] + thickness-3, start_pos[1] + length - i), 1)
+
+    def _draw_shap_cross(self, canvas, x_pos, y_pos, length, shap_sums, thickness=20, neg_labels=["L","-"], pos_labels=["R","+"],title="Default title"):
+        """
+        Draws two overlapping SHAP bars in a cross shape with gradients.
+        shap_sums[0] -> Horizontal Bar (Heading)
+        shap_sums[1] -> Vertical Bar (Speed)
+        """
+        cx = x_pos + length // 2
+        cy = y_pos + length // 2
+        half_len = length // 2
+        
+        # --- Draw Bars ---
+        # 1. Horizontal Bar (Heading)
+        h_bar_x = cx - half_len
+        h_bar_y = cy - thickness // 2
+        self._draw_gradient_bar(canvas, (h_bar_x, h_bar_y), length, thickness, horizontal=True)
+
+        # 2. Vertical Bar (Speed) - Drawn directly over center
+        v_bar_x = cx - thickness // 2
+        v_bar_y = cy - half_len
+        # To avoid overdrawing the intersection weirdly, we can just draw it. 
+        # Alternatively, blending could be used, but standard drawing is usually fine for "crosshairs".
+        self._draw_gradient_bar(canvas, (v_bar_x, v_bar_y), length, thickness, horizontal=False)
+        
+        # --- Draw Outlines ---
+        pygame.draw.rect(canvas, (0,0,0), (h_bar_x, h_bar_y, length, thickness), 2)
+        pygame.draw.rect(canvas, (0,0,0), (v_bar_x, v_bar_y, thickness, length), 2)
+
+        # --- Draw Indicators (Black lines for current value) ---
+        range_val = 2.0
+        
+        # Horizontal Indicator
+        h_val = np.clip(shap_sums[0], -range_val, range_val)
+        # Map [-2, 2] to [0, length]
+        h_px = ((h_val + range_val) / (2 * range_val)) * length
+        pygame.draw.line(canvas, (0,0,0), (h_bar_x + int(h_px), h_bar_y ), 
+                                          (h_bar_x + int(h_px), h_bar_y + thickness), 3)
+
+        # Vertical Indicator
+        # Note: Input data usually maps larger value -> top.
+        # But here y increases downwards. 
+        # So -2 (bottom) -> y = length, +2 (top) -> y = 0
+        s_val = np.clip(shap_sums[1], -range_val, range_val)
+        # Invert s_val for display so positive is "Up" (lower Y pixel value)
+        # s_val = -2 => pixel = length (bottom)
+        # s_val = +2 => pixel = 0 (top)
+        # Formula: (1 - (val + 2)/4) * length  => (2-val)/4 * length
+        v_px = ((range_val - s_val) / (2 * range_val)) * length
+        pygame.draw.line(canvas, (0,0,0), (v_bar_x , v_bar_y + int(v_px)), 
+                                          (v_bar_x + thickness , v_bar_y + int(v_px)), 3)
+
+        # --- Labels ---
+        offset = 25
+        font_surf = self.font.render("A", True, (0,0,0)) # Dummy render to get height
+        
+        def draw_label(text, x, y):
+            surf = self.font.render(text, True, (0, 0, 0))
+            w, h = surf.get_size()
+            canvas.blit(surf, (x - w/2, y - h/2))
+
+        # Horizontal Labels
+        draw_label(neg_labels[0], h_bar_x - offset, cy)
+        draw_label(pos_labels[0], h_bar_x + length + offset, cy)
+
+        # Vertical Labels
+        draw_label(pos_labels[1], cx, v_bar_y - offset)
+        draw_label(neg_labels[1], cx, v_bar_y + length + offset)
+        
+        # Title
+        title_surf = self.font.render(title, True, (0,0,0))
+        title_w, title_h = title_surf.get_size()
+        canvas.blit(title_surf, (cx - title_w/2, y_pos - title_h - 1.5*offset))
     
