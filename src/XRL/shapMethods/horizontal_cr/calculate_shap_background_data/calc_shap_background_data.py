@@ -4,7 +4,7 @@ from stable_baselines3 import SAC,TD3,DDPG,PPO
 import bluesky_gym
 import numpy as np
 import logging
-from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
+from bluesky_gym.wrappers.xrlMethods.state.saliency.horizontal_cr_env_saliency import SaliencyHorizontalControl
 from src.XRL.shapMethods.shap_explainers import runBackgroundExplainer
 import numpy as np
 

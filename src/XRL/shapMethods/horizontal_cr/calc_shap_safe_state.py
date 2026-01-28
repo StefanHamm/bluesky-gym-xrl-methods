@@ -6,7 +6,7 @@ import bluesky_gym
 import shap
 import numpy as np
 import logging
-from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_saliency import SaliencyHorizontalControl
+from bluesky_gym.wrappers.xrlMethods.state.saliency.horizontal_cr_env_saliency import SaliencyHorizontalControl
 from src.XRL.shapMethods.shap_explainers import runSafeStateExplainer
 
 bluesky_gym.register_envs()
