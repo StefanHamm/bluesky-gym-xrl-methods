@@ -39,8 +39,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
         self.num_intruders = NUM_AC_STATE
         self.d_hdg = D_HEADING
         self.px_per_km = 200
-        self.ownshiplatlon = []
-    
+
     def _calculate_xpos_ypos(self,lat,lon,*args,**kwargs)->tuple:
         qdr, dis = bs.tools.geo.kwikqdrdist(CENTER[0],CENTER[1], lat, lon)
         
@@ -52,7 +51,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             
             
     def reset(self, seed=None, options=None):
-        obs,inf = super().reset(seed=seed)
+        obs,inf = super().reset(seed=seed,options=options)
         self.episode_counter += 1
         self.step_counter = 0
         self.ownshiplatlon = []

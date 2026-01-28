@@ -215,14 +215,15 @@ class ActionHeatmapWrapper(gym.Wrapper):
                 self.close()
         
         ac_idx = bs.traf.id2idx('KL001')
-        max_distance = 200 # width of screen in km
+        max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.unwrapped.poly_points for point2 in self.unwrapped.poly_points)*NM2KM
+
         px_per_km = self.unwrapped.window_width/max_distance
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
         
         # Draw airspace
         airspace_color = (255, 0, 0)
-        coords = [((self.unwrapped.window_width/2)+point[0]*NM2KM*px_per_km, (self.unwrapped.window_height/2)-point[1]*NM2KM*px_per_km) for point in self.unwrapped.poly_points]
+        coords = [((self.unwrapped.window_width/2)+point[1]*NM2KM*px_per_km, (self.unwrapped.window_height/2)-point[0]*NM2KM*px_per_km) for point in self.unwrapped.poly_points]
         pygame.draw.polygon(canvas, airspace_color, coords, width=2)
 
         if self.draw_action_heatmap:
