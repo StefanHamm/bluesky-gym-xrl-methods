@@ -1,15 +1,13 @@
-import gymnasium as gym
 import numpy as np
 import pygame
-import os
 import copy
-import imageio
 import bluesky as bs
+from bluesky_gym.wrappers.xrlMethods.state.xrl_base_class import xrlBaseWrapper
 
-from bluesky_gym.utils.constants import NM2KM, MPS2KT
 
 
-class SaliencyMapV1Wrapper(gym.Wrapper):
+
+class SaliencyMapV1Wrapper(xrlBaseWrapper):
     
     def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",plot_action_path=False,plot_safe_path=False,model=None):
         """
@@ -25,8 +23,8 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
 
         Sets up rendering, debugging, and GIF export directories. Initializes episode and step counters.
         """
-        super().__init__(env)
-        self.fps = fps
+        super().__init__(env,export_gifs_path,fps)
+        
         #self.unwrapped.window_size=(1024,1024)
         self.last_action = None  
         self.DEBUG = debug
@@ -42,8 +40,7 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
             self.safe_vals = safe_vals
             self.safe_obs = None
         # create working directory for gif creation
-        self.export_gifs_path = export_gifs_path
-        self._init_gif_folders()
+        
         self.episode_counter = 0
         self.step_counter = 0
         self.plot_action_path = plot_action_path
@@ -54,17 +51,6 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         self.font = pygame.font.SysFont(None, 24)
         self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
         
-  
-
-    def _init_gif_folders(self):
-        if self.export_gifs_path is not None:
-            os.makedirs(self.export_gifs_path, exist_ok=True)
-        # inside create two folder: frames and gifs
-        if self.export_gifs_path is not None:
-            self.frames_path = os.path.join(self.export_gifs_path, "frames")
-            self.gifs_path = os.path.join(self.export_gifs_path, "gifs")
-            os.makedirs(self.frames_path, exist_ok=True)
-            os.makedirs(self.gifs_path, exist_ok=True)
         
     def _create_safe_observation(self,obs):
         safe_obs = copy.deepcopy(obs)
@@ -190,43 +176,8 @@ class SaliencyMapV1Wrapper(gym.Wrapper):
         bs.traf.swlnav[:] = state["swlnav"]
         bs.traf.swvnav[:] = state["swvnav"]
         
-    def _pre_render(self):
-        if self.unwrapped.window is None and self.render_mode == "human":
-            pygame.init()
-            pygame.display.init()
-            self.unwrapped.window = pygame.display.set_mode(self.unwrapped.window_size)
+    
 
-        if self.unwrapped.clock is None and self.render_mode == "human":
-            self.unwrapped.clock = pygame.time.Clock()
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                if self.unwrapped.window is not None:
-                    pygame.display.quit()
-                self.close()
-                
-    def export_episode_gif(self):
-        if self.export_gifs_path is not None:
-                # export gif from saved frames
-                gif_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}.gif")
-                images = [imageio.imread(os.path.join(self.episode_frames_path, f"frame_{step}.png")) for step in range(1, self.step_counter + 1)]
-                imageio.mimsave(gif_filename, images, fps=self.fps)
-
-                
-    def _post_render(self,canvas):
-        self.unwrapped.window.blit(canvas, canvas.get_rect())
-        pygame.display.update()
-        self.unwrapped.clock.tick(self.metadata["render_fps"])
-
-        if self.export_gifs_path is not None and not self.frame_saved:
-            self.frame_saved = True
-            # save frame to episode frames folder use the current step count as filename
-            frame_filename = os.path.join(self.episode_frames_path, f"frame_{self.step_counter}.png")
-            try:
-                pygame.image.save(canvas, frame_filename)
-            except pygame.error as e:
-                print(f"Error saving frame {self.step_counter} of episode {self.episode_counter}: {e}")
-                
     def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value) -> tuple[int,int,int]:
         color = (80,80,80)
         if self.color_mode == self.color_map["quantitized"]:
