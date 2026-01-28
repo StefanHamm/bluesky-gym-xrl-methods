@@ -2,6 +2,8 @@ import gymnasium as gym
 import pygame
 import os
 import imageio
+import bluesky as bs
+
 
 
 
@@ -63,3 +65,63 @@ class xrlBaseWrapper(gym.Wrapper):
                     pygame.display.quit()
                 self.close()
                 
+    def _save_traffic_state(self):
+        return {
+            # --- Basic Physics ---
+            "lat": np.copy(bs.traf.lat),
+            "lon": np.copy(bs.traf.lon),
+            "hdg": np.copy(bs.traf.hdg),
+            "alt": np.copy(bs.traf.alt),
+            "tas": np.copy(bs.traf.tas),
+            "cas": np.copy(bs.traf.cas),
+            "gs": np.copy(bs.traf.gs),
+            "trk": np.copy(bs.traf.trk),
+            "vs": np.copy(bs.traf.vs),
+            "sim_time": bs.sim.simt,
+
+            # --- Kinematics (Hidden State) ---
+            "ax": np.copy(bs.traf.ax),           # Current acceleration
+            # CHANGE HERE: Use ap.turnphi instead of bank
+            "turnphi": np.copy(bs.traf.ap.turnphi), # Current bank angle
+
+            # --- Intermediate Guidance (The 'Switch' variables) ---
+            "aporasas_tas": np.copy(bs.traf.aporasas.tas),
+            "aporasas_alt": np.copy(bs.traf.aporasas.alt),
+            "aporasas_vs":  np.copy(bs.traf.aporasas.vs),
+            "aporasas_hdg": np.copy(bs.traf.aporasas.hdg),
+
+            # --- Autopilot Intent ---
+            "selspd": np.copy(bs.traf.selspd),
+            "swlnav": np.copy(bs.traf.swlnav),
+            "swvnav": np.copy(bs.traf.swvnav)
+        }
+
+    def _restore_traffic_state(self, state):
+        # --- Restore Basic Physics ---
+        bs.traf.lat[:] = state["lat"]
+        bs.traf.lon[:] = state["lon"]
+        bs.traf.hdg[:] = state["hdg"]
+        bs.traf.alt[:] = state["alt"]
+        bs.traf.tas[:] = state["tas"]
+        bs.traf.cas[:] = state["cas"]
+        bs.traf.gs[:]  = state["gs"]
+        bs.traf.trk[:] = state["trk"]
+        bs.traf.vs[:]  = state["vs"]
+        bs.sim.simt    = state["sim_time"]
+
+        # --- Restore Kinematics ---
+        bs.traf.ax[:] = state["ax"]
+        # CHANGE HERE: Restore to ap.turnphi
+        bs.traf.ap.turnphi[:] = state["turnphi"]
+
+        # --- Restore Guidance ---
+        bs.traf.aporasas.tas[:] = state["aporasas_tas"]
+        bs.traf.aporasas.alt[:] = state["aporasas_alt"]
+        bs.traf.aporasas.vs[:]  = state["aporasas_vs"]
+        bs.traf.aporasas.hdg[:] = state["aporasas_hdg"]
+
+        # --- Restore Autopilot Intent ---
+        bs.traf.selspd[:] = state["selspd"]
+        bs.traf.swlnav[:] = state["swlnav"]
+        bs.traf.swvnav[:] = state["swvnav"]
+        
