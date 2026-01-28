@@ -3,6 +3,7 @@ import pygame
 import os
 import imageio
 import bluesky as bs
+import numpy as np
 
 
 
@@ -10,9 +11,15 @@ import bluesky as bs
 
 
 class xrlBaseWrapper(gym.Wrapper):
-    """This is a base class for XRL wrappers and subclasses. This has common functinality like pre_render function, saving a frame, exporting a gif
-    """
+  
     def __init__(self, env,export_gifs_path=None,fps=5):
+        """This is a base class for XRL wrappers and subclasses. This has common functinality like pre_render function, saving a frame, exporting a gif
+
+        Args:
+            env (gym.evn): env instance
+            export_gifs_path (str, optional): String to export path, creates directories. Defaults to None.
+            fps (int, optional): fps of the gif. Defaults to 5.
+        """ 
         super().__init__(env)
         self.export_gifs_path = export_gifs_path
         self._init_gif_folders()
@@ -124,4 +131,12 @@ class xrlBaseWrapper(gym.Wrapper):
         bs.traf.selspd[:] = state["selspd"]
         bs.traf.swlnav[:] = state["swlnav"]
         bs.traf.swvnav[:] = state["swvnav"]
+        
+    def lat_lon_to_screen_coordinates (self,lat,lon,*args,**kwargs)->tuple:
+        # This method should should convert the lat/lon to x/y positions on the pygame canvas
+        # Since it depends on the specific environment and rendering setup, we leave it unimplemented here.
+        # The user should implement this method in the subclass.
+        
+        raise NotImplementedError("This method needs to be implemented in the subclass.")
+        
         

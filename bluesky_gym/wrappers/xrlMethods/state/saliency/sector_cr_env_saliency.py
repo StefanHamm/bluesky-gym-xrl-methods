@@ -40,7 +40,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
         self.d_hdg = D_HEADING
         self.px_per_km = 200
 
-    def _calculate_xpos_ypos(self,lat,lon,*args,**kwargs)->tuple:
+    def lat_lon_to_screen_coordinates (self,lat,lon,*args,**kwargs)->tuple:
         qdr, dis = bs.tools.geo.kwikqdrdist(CENTER[0],CENTER[1], lat, lon)
         
         x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(qdr))*(dis * NM2KM)*self.px_per_km)

@@ -21,7 +21,6 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
             fps (int, optional): Frames per second for GIF export and rendering. Default is 5.
             color_mode (str, optional): Color mode for saliency visualization. Use "quantitized", "clipped", or "scaled".
 
-        Sets up rendering, debugging, and GIF export directories. Initializes episode and step counters.
         """
         super().__init__(env,export_gifs_path,fps)
         
@@ -78,9 +77,6 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         self._restore_traffic_state(prev_state)
         self.unwrapped._get_obs() #reset internal obs state
 
-
-        
-        
     def _simulate_rollout(self,safe=False,has_waypoints=False):
         # copy the simulator
         ac_idx = bs.traf.id2idx('KL001')
@@ -114,70 +110,6 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
                     if distance < self.distance_margin and self.unwrapped.wpt_reach[index] != 1:
                         return
         
-
-    
-    def _save_traffic_state(self):
-        return {
-            # --- Basic Physics ---
-            "lat": np.copy(bs.traf.lat),
-            "lon": np.copy(bs.traf.lon),
-            "hdg": np.copy(bs.traf.hdg),
-            "alt": np.copy(bs.traf.alt),
-            "tas": np.copy(bs.traf.tas),
-            "cas": np.copy(bs.traf.cas),
-            "gs": np.copy(bs.traf.gs),
-            "trk": np.copy(bs.traf.trk),
-            "vs": np.copy(bs.traf.vs),
-            "sim_time": bs.sim.simt,
-
-            # --- Kinematics (Hidden State) ---
-            "ax": np.copy(bs.traf.ax),           # Current acceleration
-            # CHANGE HERE: Use ap.turnphi instead of bank
-            "turnphi": np.copy(bs.traf.ap.turnphi), # Current bank angle
-
-            # --- Intermediate Guidance (The 'Switch' variables) ---
-            "aporasas_tas": np.copy(bs.traf.aporasas.tas),
-            "aporasas_alt": np.copy(bs.traf.aporasas.alt),
-            "aporasas_vs":  np.copy(bs.traf.aporasas.vs),
-            "aporasas_hdg": np.copy(bs.traf.aporasas.hdg),
-
-            # --- Autopilot Intent ---
-            "selspd": np.copy(bs.traf.selspd),
-            "swlnav": np.copy(bs.traf.swlnav),
-            "swvnav": np.copy(bs.traf.swvnav)
-        }
-
-    def _restore_traffic_state(self, state):
-        # --- Restore Basic Physics ---
-        bs.traf.lat[:] = state["lat"]
-        bs.traf.lon[:] = state["lon"]
-        bs.traf.hdg[:] = state["hdg"]
-        bs.traf.alt[:] = state["alt"]
-        bs.traf.tas[:] = state["tas"]
-        bs.traf.cas[:] = state["cas"]
-        bs.traf.gs[:]  = state["gs"]
-        bs.traf.trk[:] = state["trk"]
-        bs.traf.vs[:]  = state["vs"]
-        bs.sim.simt    = state["sim_time"]
-
-        # --- Restore Kinematics ---
-        bs.traf.ax[:] = state["ax"]
-        # CHANGE HERE: Restore to ap.turnphi
-        bs.traf.ap.turnphi[:] = state["turnphi"]
-
-        # --- Restore Guidance ---
-        bs.traf.aporasas.tas[:] = state["aporasas_tas"]
-        bs.traf.aporasas.alt[:] = state["aporasas_alt"]
-        bs.traf.aporasas.vs[:]  = state["aporasas_vs"]
-        bs.traf.aporasas.hdg[:] = state["aporasas_hdg"]
-
-        # --- Restore Autopilot Intent ---
-        bs.traf.selspd[:] = state["selspd"]
-        bs.traf.swlnav[:] = state["swlnav"]
-        bs.traf.swvnav[:] = state["swvnav"]
-        
-    
-
     def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value) -> tuple[int,int,int]:
         color = (80,80,80)
         if self.color_mode == self.color_map["quantitized"]:
@@ -264,13 +196,6 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         separation = bs.tools.geo.kwikdist(lat1, lon1, lat2, lon2)
         return separation
         
-    def _calculate_xpos_ypos(self,lat,lon,*args,**kwargs)->tuple:
-        # This method should should convert the lat/lon to x/y positions on the pygame canvas
-        # Since it depends on the specific environment and rendering setup, we leave it unimplemented here.
-        # The user should implement this method in the subclass.
-        
-        raise NotImplementedError("This method needs to be implemented in the subclass.")
-        
     def _draw_path(self,canvas,color,path_coordinates):
          for i,coord in enumerate(path_coordinates):
                 if i == 0:
@@ -279,10 +204,10 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
                 lat1, lon1 = prev_coord
                 lat2, lon2 = coord
                 
-                x_pos1,y_pos1 = self._calculate_xpos_ypos(lat1,lon1)
+                x_pos1,y_pos1 = self.lat_lon_to_screen_coordinates (lat1,lon1)
 
                 
-                x_pos2,y_pos2 = self._calculate_xpos_ypos(lat2,lon2)
+                x_pos2,y_pos2 = self.lat_lon_to_screen_coordinates (lat2,lon2)
                 #print(x_pos1,y_pos1,x_pos2,y_pos2)
                 pygame.draw.line(canvas,
                     color,
@@ -290,29 +215,12 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
                     (x_pos2,y_pos2),
                     width = 2
                 )
-
-           
+   
     def _draw_shap_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,thickness,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
         
        
         self._draw_gradient_bar(canvas, (x_pos,y_pos), bar_length, thickness,orientation == "horizontal")
        
-        # for i in range(bar_length):
-        #     # Scale from -1 (left) to +1 (right)
-        #     value = (i / bar_length) * 2 - 1
-        #     val = max(-1, min(1, value))
-        #     if val < 0:
-        #         t = -val
-        #         color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
-        #     else:
-        #         t = val
-        #         color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
-                
-        #     if orientation == "horizontal":
-        #         pygame.draw.line(canvas, color, (x_pos + i, y_pos), (x_pos + i, y_pos + thickness-3), 1)
-        #     elif orientation == "vertical":
-        #         pygame.draw.line(canvas, color, (x_pos, y_pos + i), (x_pos + thickness-3, y_pos + i), 1)
-        
         pos_text = self.font.render(pos_text, True, (0,0,0))
         neg_text = self.font.render(neg_text, True, (0,0,0))
         title_text = self.font.render(title_text, True, (0,0,0))

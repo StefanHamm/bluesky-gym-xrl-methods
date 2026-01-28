@@ -19,7 +19,6 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
             fps (int, optional): Frames per second for GIF export and rendering. Default is 5.
             model: The trained model used for action predictions.
 
-        Sets up rendering, debugging, and GIF export directories. Initializes episode and step counters.
         """
         super().__init__(env,export_gifs_path,fps)
         
@@ -95,8 +94,15 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
             bs.traf.hdg[ac_idx] = orig_hdg
             self.unwrapped._get_obs()  # Refresh internal state
         
+        returnDict = {
+            "observation": obs,
+            "lat": new_lat,
+            "lon": new_lon,
+            "hdg": new_hdg
+            
+        }
 
-        return obs,new_lat,new_lon,new_hdg
+        return returnDict
     
     def _create_action_grid(self,waypoint_pos=None):
         """
@@ -125,10 +131,8 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
         waypoint_pos: Optional waypoint position to set heading towards (lat, lon) else it keeps current heading
         """
         observations_grid = self.create_action_grid(waypoint_pos)
-        heatmap = np.zeros((self.grid_size, self.grid_size), dtype=object)
-        
         # Flatten observations for batch prediction
-        flat_obs = [item[0] for row in observations_grid for item in row]
+        flat_obs = [item["observation"] for row in observations_grid for item in row]
         
         # Vectorize Dict observation: List of Dicts -> Dict of Arrays
         batch_obs = {}
@@ -148,6 +152,17 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
                 k += 1
                 
                 new_hdg = obs[3] + act_val * self.d_heading
-                heatmap[i, j] = (obs[1],obs[2],new_hdg)  # Assuming single action output
+                obs["new_hdg"] = new_hdg
+                obs["action"] = act_val
+                
         
-        return heatmap
+        return observations_grid
+    
+    def _draw_action_heatmap(self,canvas,heatmap,observation_grid)
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                pos = observation_grid[i][j]
+                lat, lon, hdg = heatmap[i, j]
+                
+                x_pos, y_pos = self.lat_lon_to_screen_coordinates(lat, lon)
+                new_hdg = hdg

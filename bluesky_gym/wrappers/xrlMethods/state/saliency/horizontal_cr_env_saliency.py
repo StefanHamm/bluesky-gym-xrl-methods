@@ -86,7 +86,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
 
         return observation, reward, terminated, False, info
     
-    def _calculate_xpos_ypos(self,lat,lon):
+    def lat_lon_to_screen_coordinates (self,lat,lon):
         ac_idx = bs.traf.id2idx('KL001')
         qdr, dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], lat, lon)
         x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(qdr))*(dis * NM2KM)/200)*self.unwrapped.window_width
