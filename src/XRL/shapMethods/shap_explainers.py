@@ -2,7 +2,7 @@
 import numpy as np
 import shap
 
-def runSafeStateExplainer(model, observation,safe_vals):
+def runSafeStateExplainer(model, observation,safe_vals,default_baseline=None):
     # 1. SETUP: We tell SHAP to explain features 0, 1, 2... (the intruders)
     number_of_aircrafts = len(observation[list(safe_vals.keys())[0]])
     # We pass indices [0, 1, 2...] as the "Input" to SHAP
@@ -40,6 +40,12 @@ def runSafeStateExplainer(model, observation,safe_vals):
         # 3. Batch Predict
         # Single call for all permutations
         pred, _ = model.predict(obs_batch, deterministic=True)
+        if default_baseline is not None:
+            # Adjust the baseline prediction to be the passed default baseline
+            #index where all groups are masked can be done where the sum is 0
+            for i, row_indices in enumerate(X_batch):
+                if np.sum(row_indices) == 0:
+                    pred[i] = default_baseline
        
         return np.array(pred)
 

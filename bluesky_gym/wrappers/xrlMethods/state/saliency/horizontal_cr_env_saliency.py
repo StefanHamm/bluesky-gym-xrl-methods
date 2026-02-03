@@ -28,11 +28,13 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             plot_action_path (bool, optional): If True, plots the action path taken by the agent.
             plot_safe_path (bool, optional): If True, plots the safe action path based on safe values.
         """
-        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, plot_action_path, plot_safe_path, model)
+        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model)
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = DISTANCE_MARGIN # same for this one
         self.num_intruders = NUM_INTRUDERS
         self.d_hdg = D_HEADING
+        self.plot_action_path = plot_action_path
+        self.plot_safe_path = plot_safe_path
             
             
     def reset(self, seed=None, options=None):
@@ -297,6 +299,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             circle_x = ((np.sin(np.deg2rad(qdr)) * dis)/max_distance)*self.unwrapped.window_width
             circle_y = ((np.cos(np.deg2rad(qdr)) * dis)/max_distance)*self.unwrapped.window_width
 
+            
             if reach:
                 color = (155,155,155)
             else:

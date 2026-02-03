@@ -33,12 +33,14 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             plot_action_path (bool, optional): If True, plots the action path taken by the agent.
             plot_safe_path (bool, optional): If True, plots the safe action path based on safe values.
         """
-        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, plot_action_path, plot_safe_path, model)
+        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model)
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = INTRUSION_DISTANCE # same for this one
         self.num_intruders = NUM_AC_STATE
         self.d_hdg = D_HEADING
         self.px_per_km = 200
+        self.plot_action_path = plot_action_path
+        self.plot_save_path = plot_safe_path
 
     def lat_lon_to_screen_coordinates (self,lat,lon,*args,**kwargs)->tuple:
         qdr, dis = bs.tools.geo.kwikqdrdist(CENTER[0],CENTER[1], lat, lon)

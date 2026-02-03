@@ -9,7 +9,7 @@ from bluesky_gym.wrappers.xrlMethods.state.xrl_base_class import xrlBaseWrapper
 
 class SaliencyMapV1Wrapper(xrlBaseWrapper):
     
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",plot_action_path=False,plot_safe_path=False,model=None):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",model=None):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -42,8 +42,6 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         
         self.episode_counter = 0
         self.step_counter = 0
-        self.plot_action_path = plot_action_path
-        self.plot_safe_path = plot_safe_path
         self.model = model
         self.path_coordinates = []
         self.safe_action_path = []
@@ -81,12 +79,13 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         # copy the simulator
         ac_idx = bs.traf.id2idx('KL001')
         obs = self.unwrapped._get_obs()
-        safe_obs = self._create_safe_observation(obs)
+        if safe:
+            safe_obs = self._create_safe_observation(obs)
         max_steps = 30
         if safe:
             max_steps = 20
         else:
-            max_steps = 50
+            max_steps = 300
             
         
         for step in range(max_steps):  # simulate 100 steps ahead
@@ -109,6 +108,9 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
                 for distance in self.unwrapped.waypoint_distance:
                     if distance < self.distance_margin and self.unwrapped.wpt_reach[index] != 1:
                         return
+            reward, terminated = self.unwrapped._get_reward()
+            if terminated:
+                return
         
     def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value) -> tuple[int,int,int]:
         color = (80,80,80)
