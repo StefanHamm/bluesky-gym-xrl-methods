@@ -3,12 +3,12 @@ import pygame
 import copy
 import bluesky as bs
 from bluesky_gym.wrappers.xrlMethods.state.xrl_base_class import xrlBaseWrapper
-from bluesky_gym.utils.constants import NM2KM,D_HEADING
+from bluesky_gym.utils.constants import NM2KM
 
 
 class ActionHeatmapV1Wrapper(xrlBaseWrapper):
     
-    def __init__(self, env,debug=False, export_gifs_path=None, fps=5,model=None):
+    def __init__(self, env,debug=False,grid_size = None,grid_spacing_km=None, export_gifs_path=None, fps=5,model=None):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -21,6 +21,9 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
 
         """
         super().__init__(env,export_gifs_path,fps)
+        # Grid parameters
+        self.grid_size = grid_size
+        self.grid_spacing_km = grid_spacing_km
         
 
         self.DEBUG = debug
@@ -29,7 +32,7 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
         
         self.episode_counter = 0
         self.step_counter = 0
-        self.model = model
+        self.heatmap_model = model
 
         self.font = pygame.font.SysFont(None, 24)
         self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
@@ -130,7 +133,7 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
         Returns a 2D numpy array of action values.
         waypoint_pos: Optional waypoint position to set heading towards (lat, lon) else it keeps current heading
         """
-        observations_grid = self.create_action_grid(waypoint_pos)
+        observations_grid = self._create_action_grid(waypoint_pos)
         # Flatten observations for batch prediction
         flat_obs = [item["observation"] for row in observations_grid for item in row]
         
@@ -151,18 +154,61 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
                 act_val = actions[k][0] if isinstance(actions[k], (list, np.ndarray)) else actions[k]
                 k += 1
                 
-                new_hdg = obs[3] + act_val * self.d_heading
+                new_hdg = obs["hdg"] + act_val * self.d_heading
                 obs["new_hdg"] = new_hdg
                 obs["action"] = act_val
                 
         
         return observations_grid
     
-    def _draw_action_heatmap(self,canvas,heatmap,observation_grid)
+    def _draw_action_heatmap(self,canvas,observation_grid):
         for i in range(self.grid_size):
             for j in range(self.grid_size):
                 pos = observation_grid[i][j]
-                lat, lon, hdg = heatmap[i, j]
                 
-                x_pos, y_pos = self.lat_lon_to_screen_coordinates(lat, lon)
-                new_hdg = hdg
+                
+                x_pos, y_pos = self.lat_lon_to_screen_coordinates(pos["lat"], pos["lon"])
+                arrow_length = 15
+                # Arrow direction
+                dy = int(np.cos(np.deg2rad(pos["new_hdg"])) * arrow_length)
+                dx = int(np.sin(np.deg2rad(pos["new_hdg"])) * arrow_length)
+                # Arrow color: shade of red for positive, shade of blue for negative
+                intensity = int(255 * np.clip(abs(pos["action"]), 0, 1))
+                color = (intensity, 0, 0) if pos["action"] > 0 else (0, 0, intensity)
+                
+                
+                start_pos = (int(x_pos), int(y_pos))
+                end_pos = (int(x_pos + dx), int(y_pos - dy))
+                # Main arrow line
+                pygame.draw.line(canvas,
+                    color,
+                    start_pos,
+                    end_pos,
+                    width=2
+                )
+                # Arrowhead (V shape)
+                head_len = 6
+                head_angle = 25 # degrees
+                left_hdg = pos["new_hdg"] + 180 - head_angle
+                right_hdg = pos["new_hdg"] + 180 + head_angle
+                left_dy = np.cos(np.deg2rad(left_hdg)) * head_len
+                left_dx = np.sin(np.deg2rad(left_hdg)) * head_len
+                right_dy = np.cos(np.deg2rad(right_hdg)) * head_len
+                right_dx = np.sin(np.deg2rad(right_hdg)) * head_len
+                # Left side
+                start_pos_arrow = (int(x_pos + dx), int(y_pos - dy))
+                end_pos_left = (int(x_pos + dx + left_dx), int(y_pos - dy - left_dy))
+                pygame.draw.line(canvas,
+                    color,
+                    start_pos_arrow,
+                    end_pos_left,
+                    width=2
+                )
+                # Right side
+                end_pos_right = (int(x_pos + dx + right_dx), int(y_pos - dy - right_dy))
+                pygame.draw.line(canvas,
+                    color,
+                    start_pos_arrow,
+                    end_pos_right,
+                    width=2
+                )

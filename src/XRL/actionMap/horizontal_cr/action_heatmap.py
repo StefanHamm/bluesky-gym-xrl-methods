@@ -1,7 +1,7 @@
 import gymnasium as gym
 from stable_baselines3 import SAC,TD3,DDPG,PPO
 import bluesky_gym
-from bluesky_gym.wrappers.xrlMethods.state.horizontal_cr_env_action_heatmap import ActionHeatmapWrapper
+from bluesky_gym.wrappers.xrlMethods.state.action.horizontal_cr_env_action_heatmap import ActionHeatmapWrapper
 bluesky_gym.register_envs()
 
 
