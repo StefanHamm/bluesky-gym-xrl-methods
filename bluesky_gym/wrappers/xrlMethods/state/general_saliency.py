@@ -196,11 +196,16 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         separation = bs.tools.geo.kwikdist(lat1, lon1, lat2, lon2)
         return separation
         
-    def _draw_path(self,canvas,color,path_coordinates):
+    def _draw_path(self,canvas,color,path_coordinates,skip_first=False):
          for i,coord in enumerate(path_coordinates):
                 if i == 0:
-                    continue
-                prev_coord = path_coordinates[i-1]
+                    if skip_first:
+                        continue
+                    #use current agent position as previous coord
+                    agent_idx = bs.traf.id2idx('KL001')
+                    prev_coord = bs.traf.lat[agent_idx], bs.traf.lon[agent_idx]
+                else:
+                    prev_coord = path_coordinates[i-1]
                 lat1, lon1 = prev_coord
                 lat2, lon2 = coord
                 

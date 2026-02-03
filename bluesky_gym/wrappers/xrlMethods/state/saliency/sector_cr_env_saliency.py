@@ -111,7 +111,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
         canvas.fill((135,206,235))
         
         if self.plot_action_path and self.model is not None:
-            self._draw_path(canvas,(255,0,0),self.path_coordinates)
+            self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
            
                 
         if self.plot_safe_path and self.model is not None and self.safe_vals is not None:
