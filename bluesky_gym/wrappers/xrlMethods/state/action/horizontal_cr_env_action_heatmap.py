@@ -208,14 +208,4 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
                 width = 2
             )
 
-        self.unwrapped.window.blit(canvas, canvas.get_rect())
-        pygame.display.update()
-        self.unwrapped.clock.tick(self.metadata["render_fps"])
-
-        if self.export_gifs_path is not None:
-            # save frame to episode frames folder use the current step count as filename
-            frame_filename = os.path.join(self.episode_frames_path, f"frame_{self.step_counter}.png")
-            try:
-                pygame.image.save(canvas, frame_filename)
-            except pygame.error as e:
-                print(f"Error saving frame {self.step_counter} of episode {self.episode_counter}: {e}")
+        self._post_render(canvas)
