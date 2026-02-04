@@ -40,7 +40,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
         self.d_hdg = D_HEADING
         self.px_per_km = 200
         self.plot_action_path = plot_action_path
-        self.plot_save_path = plot_safe_path
+        self.plot_safe_path = plot_safe_path
 
     def lat_lon_to_screen_coordinates (self,lat,lon,*args,**kwargs)->tuple:
         qdr, dis = bs.tools.geo.kwikqdrdist(CENTER[0],CENTER[1], lat, lon)
@@ -310,6 +310,9 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             if shap_values is not None:
                 if int_idx in obs_rank_map:
                     rank = obs_rank_map[int_idx]
+                    # draw a small number indicating intruder index
+                    index_text = self.font.render(str(rank), True, (0, 0, 0))
+                    canvas.blit(index_text, (x_pos - 5, y_pos - 5))
                     if rank < len(shap_values.values[0]):
                         control_shap = shap_values.values[0][rank][0]
                         max_saliency = np.max(np.abs(shap_values.values[0][:,0]))
@@ -346,6 +349,8 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
                 width = 2
             )
 
+            
+
             # import code
             # code.interact(local=locals())
         
@@ -373,5 +378,8 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             cross_y = self.unwrapped.window_size[1] - legend_width - padding
             
             self._draw_shap_cross(canvas, legend_x, cross_y, legend_width, shap_sums, neg_labels=["Left","Dec"], pos_labels=["Right","Inc"],title="Turn & Speed Influences")
+        
+        if not self.frame_saved and self.export_gifs_path is not None and shap_values is not None:
+            self._create_shap_row(shap_values.values[0].flatten())
 
         self._post_render(canvas)

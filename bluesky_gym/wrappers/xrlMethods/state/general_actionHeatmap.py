@@ -4,6 +4,7 @@ import copy
 import bluesky as bs
 from .xrl_base_class import xrlBaseWrapper
 from bluesky_gym.utils.constants import NM2KM
+from bluesky_gym.envs.common.functions import get_point_at_distance
 
 
 class ActionHeatmapV1Wrapper(xrlBaseWrapper):
@@ -133,6 +134,7 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
         Returns a 2D numpy array of action values.
         waypoint_pos: Optional waypoint position to set heading towards (lat, lon) else it keeps current heading
         """
+        prev_state = self._save_traffic_state()
         observations_grid = self._create_action_grid(waypoint_pos)
         # Flatten observations for batch prediction
         flat_obs = [item["observation"] for row in observations_grid for item in row]
@@ -157,7 +159,9 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
                 new_hdg = obs["hdg"] + act_val * self.d_heading
                 obs["new_hdg"] = new_hdg
                 obs["action"] = act_val
-                
+        
+        self._restore_traffic_state(prev_state)
+        self.unwrapped._get_obs()  # Refresh internal state after restoring
         
         return observations_grid
     
@@ -172,12 +176,15 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
                 # Arrow direction
                 dy = int(np.cos(np.deg2rad(pos["new_hdg"])) * arrow_length)
                 dx = int(np.sin(np.deg2rad(pos["new_hdg"])) * arrow_length)
+                #lat2, lon2 = get_point_at_distance(pos["lat"], pos["lon"],  arrow_length / NM2KM,pos["new_hdg"])
+                #x2_pos, y2_pos = self.lat_lon_to_screen_coordinates(lat2, lon2)
                 # Arrow color: shade of red for positive, shade of blue for negative
                 intensity = int(255 * np.clip(abs(pos["action"]), 0, 1))
                 color = (intensity, 0, 0) if pos["action"] > 0 else (0, 0, intensity)
                 
                 
                 start_pos = (int(x_pos), int(y_pos))
+                #end_pos = (int(x2_pos), int(y2_pos))
                 end_pos = (int(x_pos + dx), int(y_pos - dy))
                 # Main arrow line
                 pygame.draw.line(canvas,

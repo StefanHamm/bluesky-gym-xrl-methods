@@ -56,6 +56,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             self._render_frame()
 
         return obs,inf
+    
             
     def step(self, action, shap_values=None,examplePlane = None):
         
@@ -254,6 +255,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             
             
             if shap_values is not None:
+                
                 if i < len(shap_values.values[0]):
                     color = self._get_saliency_color(shap_values.values[0][i],np.max(np.abs(shap_values.values)),shap_values.base_values[0][0])
                 else:
@@ -291,6 +293,12 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
                 radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.unwrapped.window_width,
                 width = 2
             )
+            
+            # draw a small number indicating intruder index
+            index_text = self.font.render(str(i+1), True, (0, 0, 0))
+            canvas.blit(index_text, (x_pos + 5, y_pos + 5))
+        
+        
 
 
         # draw target waypoint
@@ -342,5 +350,9 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             #draw action bar for turn influence
         
             self._draw_shap_bar(canvas,shap_sums[0],legend_x,legend_y,legend_width,legend_height,"horizontal","Right","Left","Overall Turn Influence")
+
+        if not self.frame_saved and self.export_gifs_path is not None and shap_values is not None:
+            self._create_shap_row(shap_values.values[0])
+            
 
         self._post_render(canvas)

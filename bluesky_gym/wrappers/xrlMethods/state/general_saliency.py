@@ -3,8 +3,8 @@ import pygame
 import copy
 import bluesky as bs
 from .xrl_base_class import xrlBaseWrapper
-
-
+import pandas as pd
+import os
 
 
 class SaliencyMapV1Wrapper(xrlBaseWrapper):
@@ -47,7 +47,24 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         self.safe_action_path = []
         self.font = pygame.font.SysFont(None, 24)
         self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
+        self.track_shap_values = pd.DataFrame()
+        # should have columns: frame, intruder 1,intruder 2,... intruder n for each intruder either a tuple or single value
+    
+    def _create_shap_row(self,shap_values):
+        row = {"frame": self.step_counter}
+        for i, val in enumerate(shap_values):
+            row[f"feature_{i+1}"] = val
+        self.track_shap_values = pd.concat([self.track_shap_values, pd.DataFrame([row])], ignore_index=True)
         
+    def export_episode_gif(self):
+        
+        if self.export_gifs_path is not None:
+            #export the shap valeus as csv and reset the dataframe
+            shap_filename = os.path.join(self.gifs_path, f"episode_{self.episode_counter}_shap_values.csv")
+            self.track_shap_values.to_csv(shap_filename, index=False)
+            self.track_shap_values = pd.DataFrame()
+        
+        return super().export_episode_gif()
         
     def _create_safe_observation(self,obs):
         safe_obs = copy.deepcopy(obs)
@@ -148,6 +165,11 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
                 val = val/scale_factor
             elif self.color_mode == self.color_map["default"]:
                 val = shap_value / 2.0
+            else:
+                Exception("Invalid color mode selected.")
+                
+            # clip the values to be save to a range -1 to +1
+            val = np.clip(val, -1, 1)
             
             if val < 0:
                 t = -val

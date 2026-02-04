@@ -129,7 +129,7 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
                     color = self._get_saliency_color(shap_values.values[0][i],np.max(np.abs(shap_values.values)),shap_values.base_values[0][0])
                 else:
                     color = (255,255,255)
-
+            
             pygame.draw.circle(
                 canvas, 
                 color,
@@ -145,6 +145,10 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
                 radius = (DISTANCE_MARGIN/max_distance)*self.unwrapped.window_width,
                 width = 2
             )
+
+            # draw a small number indicating intruder index
+            index_text = self.font.render(str(i+1), True, (0, 0, 0))
+            canvas.blit(index_text, ((self.unwrapped.window_width/2)+circle_x + 5, (self.unwrapped.window_height/2)-circle_y + 5))
 
          # Draw legend for SHAP influence
         legend_x = 30
@@ -166,5 +170,7 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
         
             self._draw_shap_bar(canvas,shap_sums[0],legend_x,legend_y,legend_width,legend_height,"horizontal","Right","Left","Overall Turn Influence")
 
+        if not self.frame_saved and self.export_gifs_path is not None and shap_values is not None:
+            self._create_shap_row(shap_values.values[0])
 
         self._post_render(canvas=canvas)

@@ -25,6 +25,7 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model)
         self.max_distance = 200  # width of screen in km
         self.d_heading = D_HEADING
+        self.px_per_km = None
         
     
     def lat_lon_to_screen_coordinates(self, lat, lon, *args, **kwargs):
@@ -40,8 +41,8 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         
         int_qdr, int_dis = bs.tools.geo.kwikqdrdist(CENTER[0],CENTER[1],lat, lon)
 
-        x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/self.max_distance)*self.unwrapped.window_width
-        y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/self.max_distance)*self.unwrapped.window_height
+        x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)*self.px_per_km)
+        y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*self.px_per_km)
         return int(x_pos), int(y_pos)
     
     def reset(self, seed=None, options=None):       
@@ -60,7 +61,7 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         self.step_counter += 1
 
         self.unwrapped._get_action(action)
-
+        self.frame_saved = False  # reset frame saved for this step
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
             bs.sim.step()
@@ -96,6 +97,7 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.unwrapped.poly_points for point2 in self.unwrapped.poly_points)*NM2KM
 
         px_per_km = self.unwrapped.window_width/max_distance
+        self.px_per_km = px_per_km
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
         

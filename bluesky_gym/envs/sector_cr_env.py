@@ -129,13 +129,13 @@ class SectorCREnv(gym.Env):
                 self._render_frame()
         
         observation = self._get_obs()        
-        reward = self._get_reward()
+        reward,terminated = self._get_reward()
         info = self._get_info()
 
         # truncate instead of terminate to avoid aircraft learning to exit sector fast
         truncate = self._check_inside_airspace()
 
-        return observation, reward, False, truncate, info
+        return observation, reward, terminated, truncate, info
     
     def _check_inside_airspace(self):
         ac_idx = bs.traf.id2idx(ACTOR)
@@ -248,7 +248,7 @@ class SectorCREnv(gym.Env):
         total_reward = drift_reward + intrusion_reward + speed_reward
         self.total_reward += total_reward
 
-        return total_reward
+        return total_reward,False
     
     def _get_obs(self):
 

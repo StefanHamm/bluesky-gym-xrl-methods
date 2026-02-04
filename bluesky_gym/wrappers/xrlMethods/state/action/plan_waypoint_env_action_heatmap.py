@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import pygame
-from bluesky_gym.envs.horizontal_cr_env import D_HEADING,ACTION_FREQUENCY,NUM_INTRUDERS,NM2KM,INTRUSION_DISTANCE,DISTANCE_MARGIN,AC_SPD,WAYPOINT_DISTANCE_MAX
+from bluesky_gym.envs.plan_waypoint_env import D_HEADING,ACTION_FREQUENCY,DISTANCE_MARGIN
 import bluesky as bs
 from bluesky_gym.wrappers.xrlMethods.state.general_actionHeatmap import ActionHeatmapV1Wrapper
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
@@ -21,11 +21,11 @@ import time
 
 class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
-    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5,point_to_waypoint = True, **kwargs):
+    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, **kwargs):
         super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model)
         self.max_distance = 200  # width of screen in km
         self.d_heading = D_HEADING
-        self.point_to_waypoint = point_to_waypoint
+        
 
 
     def lat_lon_to_screen_coordinates(self, lat, lon, *args, **kwargs):
@@ -41,8 +41,8 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         
         int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx],lat, lon)
 
-        x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/self.max_distance)*self.unwrapped.window_width
-        y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/self.max_distance)*self.unwrapped.window_height
+        x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis )/self.max_distance)*self.unwrapped.window_width
+        y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis )/self.max_distance)*self.unwrapped.window_height
         return int(x_pos), int(y_pos)
 
     def reset(self, seed=None, options=None):     
@@ -94,38 +94,33 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
     def _render_frame(self):
         self._pre_render()
-        
-        ac_idx = bs.traf.id2idx('KL001')
-    
+
+        max_distance = 200 # width of screen in km
+
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
-
-        if self.point_to_waypoint:
-            observation_grid = self._compute_action_heatmap((self.unwrapped.wpt_lat,self.unwrapped.wpt_lon))
-            
-        else:
-            observation_grid = self._compute_action_heatmap()
         
+        observation_grid = self._compute_action_heatmap()
         self._draw_action_heatmap(canvas,observation_grid)
-        # draw ownship
         
-        ac_length = 8
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/self.max_distance)*self.unwrapped.window_width
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/self.max_distance)*self.unwrapped.window_width
 
+        # draw ownship
+        ac_idx = bs.traf.id2idx('KL001')
+        ac_length = 8
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),
-            (self.unwrapped.window_width/2-heading_end_x/2,self.unwrapped.window_height/2+heading_end_y/2),
-            ((self.unwrapped.window_width/2)+heading_end_x/2,(self.unwrapped.window_height/2)-heading_end_y/2),
+            (self.unwrapped.window_width/2,self.unwrapped.window_height/2),
+            ((self.unwrapped.window_width/2)+heading_end_x,(self.unwrapped.window_height/2)-heading_end_y),
             width = 4
         )
 
-
         # draw heading line
         heading_length = 50
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/self.max_distance)*self.unwrapped.window_width
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/self.max_distance)*self.unwrapped.window_width
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.unwrapped.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.unwrapped.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),
@@ -134,61 +129,11 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
             width = 1
         )
 
-        # draw intruders
-        ac_length = 3
-
-        for i in range(NUM_INTRUDERS):
-            int_idx = i+1
-            int_hdg = bs.traf.hdg[int_idx]
-            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * ac_length)/self.max_distance)*self.unwrapped.window_width
-            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * ac_length)/self.max_distance)*self.unwrapped.window_width
-
-            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
-
-            # determine color
-            if int_dis < INTRUSION_DISTANCE:
-                color = (220,20,60)
-            else: 
-                color = (80,80,80)
-
-            x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/self.max_distance)*self.unwrapped.window_width
-            y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/self.max_distance)*self.unwrapped.window_height
-
-            pygame.draw.line(canvas,
-                color,
-                (x_pos,y_pos),
-                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
-                width = 4
-            )
-
-            # draw heading line
-            heading_length = 10
-            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/self.max_distance)*self.unwrapped.window_width
-            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/self.max_distance)*self.unwrapped.window_width
-
-            pygame.draw.line(canvas,
-                color,
-                (x_pos,y_pos),
-                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
-                width = 1
-            )
-
-            pygame.draw.circle(
-                canvas, 
-                color,
-                (x_pos,y_pos),
-                radius = (INTRUSION_DISTANCE*NM2KM/self.max_distance)*self.unwrapped.window_width,
-                width = 2
-            )
-
-            # import code
-            # code.interact(local=locals())
-
         # draw target waypoint
-        for qdr, dis, reach in zip(self.unwrapped.wpt_qdr, self.unwrapped.waypoint_distance, self.unwrapped.wpt_reach):
+        for qdr, dis, reach in zip(self.unwrapped.wpt_qdr, self.unwrapped.wpt_dis, self.unwrapped.wpt_reach):
 
-            circle_y = ((np.cos(np.deg2rad(qdr)) * dis)/self.max_distance)*self.unwrapped.window_width
-            circle_x = ((np.sin(np.deg2rad(qdr)) * dis)/self.max_distance)*self.unwrapped.window_width
+            circle_x = ((np.sin(np.deg2rad(qdr)) * dis)/max_distance)*self.unwrapped.window_width
+            circle_y = ((np.cos(np.deg2rad(qdr)) * dis)/max_distance)*self.unwrapped.window_width
 
             if reach:
                 color = (155,155,155)
@@ -207,7 +152,7 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
                 canvas, 
                 color,
                 ((self.unwrapped.window_width/2)+circle_x,(self.unwrapped.window_height/2)-circle_y),
-                radius = (DISTANCE_MARGIN/self.max_distance)*self.unwrapped.window_width,
+                radius = (DISTANCE_MARGIN/max_distance)*self.unwrapped.window_width,
                 width = 2
             )
 
