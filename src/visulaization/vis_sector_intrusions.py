@@ -60,7 +60,7 @@ def plot_metric(pd_data, metric, title, save_path):
     ax.set_xlabel('Timesteps')
     ax.set_ylabel(metric.replace('_', ' ').title())
     ax.legend()
-    plt.savefig(save_path, format='svg', bbox_inches='tight')
+    plt.savefig(save_path, format='pdf', bbox_inches='tight')
     plt.close(fig)
 
 if __name__ == "__main__":
@@ -81,7 +81,7 @@ if __name__ == "__main__":
         logging.info(f"Processing environment: {env_name}")
         combined_df = load_folder_data(logDir, metric, align=args.align)
         if not combined_df.empty:
-            plot_metric(combined_df, metric, f'{env_name} - {metric}', os.path.join(plotDir, f"{env_name}_{metric}_{args.align}.svg"))
+            plot_metric(combined_df, metric, f'{env_name} - {metric}', os.path.join(plotDir, f"{env_name}_{metric}_{args.align}.pdf"))
         else:
             logging.warning(f"No data found for {env_name}")
     else:

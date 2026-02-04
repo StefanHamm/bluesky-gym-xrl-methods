@@ -6,6 +6,7 @@ import bluesky_gym
 import shap
 import numpy as np
 import logging
+import argparse
 from bluesky_gym.wrappers.xrlMethods.state.saliency.horizontal_cr_env_saliency import SaliencyHorizontalControl
 from src.XRL.shapMethods.shap_explainers import runSafeStateExplainer
 
@@ -28,13 +29,23 @@ SAFE_VALS = {
 
 if __name__ == "__main__":
     
+    parser = argparse.ArgumentParser(description='Run SHAP Safe State analysis')
+    parser.add_argument('--n_eps', type=int, default=10, help='Number of episodes')
+    parser.add_argument('--max_steps', type=int, default=50, help='Max steps per episode')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--jobid', type=str, default="4675598", help='Job ID for model loading')
+    parser.add_argument('--print_action_path', action='store_true', default=True, help='Plot action path')
+    parser.add_argument('--plot_safe_path', action='store_true', default=True, help='Plot safe path')
+    parser.add_argument('--color_mode', type=str, default="default", help='Color mode: default, clipped, or scaled')
+    
+    args = parser.parse_args()
 
-    JOBID = "4675598"
-    SEED = 42
+    JOBID = args.jobid
+    SEED = args.seed
     EXPORT = True
-    PRINT_ACTION_PATH = True
-    PLOT_SAFE_PATH = True
-    color_mode = "default"  #"clipped"  #"scaled"EX
+    PRINT_ACTION_PATH = args.print_action_path
+    PLOT_SAFE_PATH = args.plot_safe_path
+    color_mode = args.color_mode
 
     gifFolder= None
     if EXPORT:
@@ -57,8 +68,8 @@ if __name__ == "__main__":
     
     saliencyEnv = SaliencyHorizontalControl(env,SAFE_VALS,DEBUG,export_gifs_path=gifFolder,fps=5,color_mode=color_mode,plot_action_path=PRINT_ACTION_PATH,model=model,plot_safe_path=PLOT_SAFE_PATH)
  
-    n_eps = 10
-    max_steps = 50
+    n_eps = args.n_eps
+    max_steps = args.max_steps
 
     for i in range(n_eps):
         done = truncated = False

@@ -29,7 +29,7 @@ def plot_rewards(pd_reward, title, save_path):
     ax.set_xlabel('Timesteps')
     ax.set_ylabel('Reward')
     ax.legend()
-    plt.savefig(save_path, format='svg',bbox_inches='tight')
+    plt.savefig(save_path, format='pdf',bbox_inches='tight')
     plt.close(fig) # Close the figure to free memory
 
 def plot_multipanel(env_data_dict, save_path):
@@ -66,7 +66,7 @@ def plot_multipanel(env_data_dict, save_path):
         fig.legend(handles, labels, loc='lower center', ncol=len(handles), bbox_to_anchor=(0.5, 0.01))
         
     plt.tight_layout(rect=[0, 0.05, 1, 1]) # Adjust layout to make room for legend
-    plt.savefig(save_path, format='svg', bbox_inches='tight')
+    plt.savefig(save_path, format='pdf', bbox_inches='tight')
     plt.close(fig)
 
 def load_csv(file_path, align='right'):
@@ -129,9 +129,9 @@ if __name__ == "__main__":
             env_data_dict[env_name] = combined_df
         else:
             export_path = os.path.join(plotDir, f"{env_name}_combined_rewards.csv")
-            plot_rewards(combined_df, f'Reward Comparison for {env_name}', os.path.join(plotDir, f"{env_name}_reward_comparison_{args.align}.svg"))
+            plot_rewards(combined_df, f'Reward Comparison for {env_name}', os.path.join(plotDir, f"{env_name}_reward_comparison_{args.align}.pdf"))
 
     if args.multipanel and env_data_dict:
         logging.info("Generating multipanel plot...")
-        plot_multipanel(env_data_dict, os.path.join(plotDir, f"multipanel_reward_comparison_{args.align}.svg"))
+        plot_multipanel(env_data_dict, os.path.join(plotDir, f"multipanel_reward_comparison_{args.align}.pdf"))
 

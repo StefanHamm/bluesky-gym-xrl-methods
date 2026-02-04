@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 import copy
 import bluesky as bs
-from bluesky_gym.wrappers.xrlMethods.state.xrl_base_class import xrlBaseWrapper
+from .xrl_base_class import xrlBaseWrapper
 
 
 
