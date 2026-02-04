@@ -29,7 +29,7 @@ if __name__ == "__main__":
     SEED = 42
     EXPORT = True
     PRINT_ACTION_PATH = True
-    color_mode = "default"  #"clipped"  #"scaled"EX
+    color_mode = "baseline_scaled"  #"clipped"  #"scaled"EX
 
     gifFolder= None
     if EXPORT:
