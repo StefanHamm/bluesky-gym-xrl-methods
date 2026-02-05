@@ -21,12 +21,14 @@ import time
 
 class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
-    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5,point_to_waypoint = True, **kwargs):
+    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5,point_to_waypoint = True,plot_action_path=False, **kwargs):
         super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model)
         self.max_distance = 200  # width of screen in km
-        self.d_heading = D_HEADING
+        self.d_heading = D_HEADING      
+        self.action_frequency = ACTION_FREQUENCY
+        self.distance_margin = DISTANCE_MARGIN
+        self.plot_action_path = plot_action_path
         self.point_to_waypoint = point_to_waypoint
-
 
     def lat_lon_to_screen_coordinates(self, lat, lon, *args, **kwargs):
         """
@@ -49,6 +51,9 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         obs,inf = super().reset(seed=seed, options=options)  
         self.episode_counter += 1
         self.step_counter = 0
+
+        if self.plot_action_path and self.model is not None:
+            self._calculate_projected_path(safe=False,has_waypoints=True)
         
         if self.export_gifs_path is not None:
             # create folder inside frames for this episode
@@ -99,6 +104,9 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
+
+        if self.plot_action_path and self.model is not None:
+             self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
 
         if self.point_to_waypoint:
             observation_grid = self._compute_action_heatmap((self.unwrapped.wpt_lat,self.unwrapped.wpt_lon))

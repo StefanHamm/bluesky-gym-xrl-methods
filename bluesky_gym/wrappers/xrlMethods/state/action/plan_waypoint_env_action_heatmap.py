@@ -11,6 +11,8 @@ import imageio
 
 import time
 
+from bluesky_gym.utils.constants import NM2KM
+
 
 # This wrapper creates saliency maps from the current observation
 #class SaliencyMapV1Wrapper(gym.ObservationWrapper):
@@ -21,35 +23,46 @@ import time
 
 class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
-    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, **kwargs):
+    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, plot_action_path=False, **kwargs):
         super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model)
         self.max_distance = 200  # width of screen in km
         self.d_heading = D_HEADING
         
+        self.action_frequency = ACTION_FREQUENCY
+        self.distance_margin = DISTANCE_MARGIN
+        self.plot_action_path = plot_action_path
+        
 
 
     def lat_lon_to_screen_coordinates(self, lat, lon, *args, **kwargs):
-        """
-        Converts latitude and longitude to screen coordinates based on the current aircraft position and heading.
-
-        Args:
-            lat (float): Latitude of the point to convert.
-            lon (float): Longitude of the point to convert."""
-            
-        # its done reletaive to the center aircraft
         ac_idx = bs.traf.id2idx('KL001')
+        qdr, dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], lat, lon)
         
-        int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx],lat, lon)
-
-        x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis )/self.max_distance)*self.unwrapped.window_width
-        y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis )/self.max_distance)*self.unwrapped.window_height
-        return int(x_pos), int(y_pos)
+        # Convert distance to KM
+        dis_km = dis * NM2KM
+        
+        # Calculate offsets (scale based on max_distance in KM)
+        x_offset = ((np.sin(np.deg2rad(qdr)) * dis_km)/self.max_distance) * self.unwrapped.window_width
+        y_offset = ((np.cos(np.deg2rad(qdr)) * dis_km)/self.max_distance) * self.unwrapped.window_width
+        
+        # Convert to absolute screen coordinates
+        # X: center + offset
+        # Y: center - offset (Y is inverted in screen coords)
+        x_pos = (self.unwrapped.window_width / 2) + x_offset
+        y_pos = (self.unwrapped.window_height / 2) - y_offset
+        
+        return x_pos, y_pos
 
     def reset(self, seed=None, options=None):     
         obs,inf = super().reset(seed=seed, options=options)  
         self.episode_counter += 1
         self.step_counter = 0
         
+        if self.plot_action_path and self.model is not None:
+            prev_reach = self.unwrapped.wpt_reach.copy()
+            self._calculate_projected_path(safe=False,has_waypoints=False)
+            self.unwrapped.wpt_reach = prev_reach  # reset reach to original after calculation
+
         if self.export_gifs_path is not None:
             # create folder inside frames for this episode
             self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
@@ -102,6 +115,9 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         
         observation_grid = self._compute_action_heatmap()
         self._draw_action_heatmap(canvas,observation_grid)
+
+        if self.plot_action_path and self.model is not None:
+             self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
         
 
         # draw ownship

@@ -21,11 +21,13 @@ import time
 
 class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
-    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, **kwargs):
+    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, plot_action_path=False, **kwargs):
         super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model)
         self.max_distance = 200  # width of screen in km
         self.d_heading = D_HEADING
         self.px_per_km = None
+        self.action_frequency = ACTION_FREQUENCY
+        self.plot_action_path = plot_action_path
         
     
     def lat_lon_to_screen_coordinates(self, lat, lon, *args, **kwargs):
@@ -54,7 +56,12 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
             self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
             os.makedirs(self.episode_frames_path, exist_ok=True)
         
-        return super().reset(seed=seed, options=options)
+        obs, info = super().reset(seed=seed, options=options)
+
+        if self.plot_action_path and self.model is not None:
+            self._calculate_projected_path(safe=False,has_waypoints=False)
+
+        return obs, info
 
     def step(self, action):
         
@@ -101,6 +108,9 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
         
+        if self.plot_action_path and self.model is not None:
+             self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
+        
         observation_grid = self._compute_action_heatmap()
         self._draw_action_heatmap(canvas,observation_grid)
         
@@ -108,7 +118,8 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         airspace_color = (255, 0, 0)
         coords = [((self.unwrapped.window_width/2)+point[1]*NM2KM*px_per_km, (self.unwrapped.window_height/2)-point[0]*NM2KM*px_per_km) for point in self.unwrapped.poly_points]
         pygame.draw.polygon(canvas, airspace_color, coords, width=2)
-
+        
+        
         
 
         # Draw ownship

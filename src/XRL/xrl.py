@@ -99,7 +99,7 @@ def main():
     
     # Visualization params
     parser.add_argument('--color_mode', type=str, default="default", help='Color mode for SHAP: default, clipped, or scaled')
-    parser.add_argument('--plot_action_path', action='store_true', help='Plot action path (SAFE STATE only)')
+    parser.add_argument('--plot_action_path', action='store_true', default=True, help='Plot action path (SAFE STATE only)')
     parser.add_argument('--plot_safe_path', action='store_true', help='Plot safe path (SAFE STATE only)')
     parser.add_argument('--debug', action='store_true', help='Debug mode (logging and paths)')
     
@@ -209,11 +209,11 @@ def main():
         model = ModelClass.load(model_path, device='cpu')
         
         if args.env == 'HorizontalCREnv-v0':
-             wrapper = ActionHeatmapWrapper(env, model=model, draw_action_heatmap=True, grid_size=args.grid_size, grid_spacing_km=args.grid_spacing, export_gifs_path=gif_folder, fps=5, point_to_waypoint=args.point_to_waypoint)
+             wrapper = ActionHeatmapWrapper(env, model=model, draw_action_heatmap=True, grid_size=args.grid_size, grid_spacing_km=args.grid_spacing, export_gifs_path=gif_folder, fps=5, point_to_waypoint=args.point_to_waypoint, plot_action_path=args.plot_action_path)
         elif args.env == 'SectorCREnv-v0':
-             wrapper = SectorActionHeatmapWrapper(env, model=model, draw_action_heatmap=True, grid_size=args.grid_size, grid_spacing_km=args.grid_spacing, export_gifs_path=gif_folder, fps=5)
+             wrapper = SectorActionHeatmapWrapper(env, model=model, draw_action_heatmap=True, grid_size=args.grid_size, grid_spacing_km=args.grid_spacing, export_gifs_path=gif_folder, fps=5, plot_action_path=args.plot_action_path)
         elif args.env == 'PlanWaypointEnv-v0':
-             wrapper = PlanWaypointActionHeatmapWrapper(env, model=model, draw_action_heatmap=True, grid_size=args.grid_size, grid_spacing_km=args.grid_spacing, export_gifs_path=gif_folder, fps=5)
+             wrapper = PlanWaypointActionHeatmapWrapper(env, model=model, draw_action_heatmap=True, grid_size=args.grid_size, grid_spacing_km=args.grid_spacing, export_gifs_path=gif_folder, fps=5, plot_action_path=args.plot_action_path)
 
     if wrapper is None:
         print(f"Error: Could not initialize wrapper for env {args.env} and method {args.method}")

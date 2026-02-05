@@ -25,7 +25,7 @@ if __name__ == "__main__":
     modelpath = f"models/{JOBID}/{env_name}/{env_name}_SAC_singleEnv_baseline_model_mp.zip"
     model = SAC.load(modelpath,device='cpu')
     
-    actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=10, grid_spacing_km=10,export_gifs_path=gifFolder,fps=5)
+    actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=9, grid_spacing_km=5,export_gifs_path=gifFolder,fps=5,plot_action_path=True)
     
     episodes = 10
     for ep in range(episodes):

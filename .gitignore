@@ -3,6 +3,7 @@
 .vscode
 TODO.txt
 images/
+selected_results/
 plots/
 logs/
 models/

@@ -33,7 +33,7 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
         
         self.episode_counter = 0
         self.step_counter = 0
-        self.heatmap_model = model
+        self.model = model
 
         self.font = pygame.font.SysFont(None, 24)
         self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
@@ -146,7 +146,7 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
                 batch_obs[key] = np.stack([obs[key] for obs in flat_obs])
         
         # Batch predict
-        actions, _ = self.heatmap_model.predict(batch_obs, deterministic=True)
+        actions, _ = self.model.predict(batch_obs, deterministic=True)
         
         k = 0
         for i in range(self.grid_size):

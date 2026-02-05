@@ -43,8 +43,7 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         self.episode_counter = 0
         self.step_counter = 0
         self.model = model
-        self.path_coordinates = []
-        self.safe_action_path = []
+        
         self.font = pygame.font.SysFont(None, 24)
         self.frame_saved = False # Dont want to save all intermediate frames when exporting gifs
         self.track_shap_values = pd.DataFrame()
@@ -81,53 +80,7 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
                 safe_obs[key] = obs[key]
         return safe_obs
         
-    def _calculate_projected_path(self,safe=False,has_waypoints=False):
-        
-        prev_state = self._save_traffic_state()
-        if safe:
-            self.safe_action_path = []
-        else:
-            self.path_coordinates = []
-        self._simulate_rollout(safe,has_waypoints)
-        self._restore_traffic_state(prev_state)
-        self.unwrapped._get_obs() #reset internal obs state
-
-    def _simulate_rollout(self,safe=False,has_waypoints=False):
-        # copy the simulator
-        ac_idx = bs.traf.id2idx('KL001')
-        obs = self.unwrapped._get_obs()
-        if safe:
-            safe_obs = self._create_safe_observation(obs)
-        max_steps = 30
-        if safe:
-            max_steps = 20
-        else:
-            max_steps = 300
-            
-        
-        for step in range(max_steps):  # simulate 100 steps ahead
-            obs = self.unwrapped._get_obs()
-            if safe:
-                obs = self._update_safe_observation(safe_obs,obs)
-            action = self.model.predict(obs, deterministic=True)[0]
-            self.unwrapped._get_action(action)
-            for i in range(self.action_frequency):
-                bs.sim.step()
-                # store ownship state in path_coordinates
-            
-            if safe:
-                self.safe_action_path.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
-            else:
-                self.path_coordinates.append((bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]))
-            # if last coordinate is close to waypoint, stop
-            index = 0
-            if has_waypoints:
-                for distance in self.unwrapped.waypoint_distance:
-                    if distance < self.distance_margin and self.unwrapped.wpt_reach[index] != 1:
-                        return
-            reward, terminated = self.unwrapped._get_reward()
-            if terminated:
-                return
+    
         
     def _get_saliency_color(self,shap_value,max_abs_shap_value, baseline_value) -> tuple[int,int,int]:
         color = (80,80,80)
@@ -220,30 +173,7 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         separation = bs.tools.geo.kwikdist(lat1, lon1, lat2, lon2)
         return separation
         
-    def _draw_path(self,canvas,color,path_coordinates,skip_first=False):
-         for i,coord in enumerate(path_coordinates):
-                if i == 0:
-                    if skip_first:
-                        continue
-                    #use current agent position as previous coord
-                    agent_idx = bs.traf.id2idx('KL001')
-                    prev_coord = bs.traf.lat[agent_idx], bs.traf.lon[agent_idx]
-                else:
-                    prev_coord = path_coordinates[i-1]
-                lat1, lon1 = prev_coord
-                lat2, lon2 = coord
-                
-                x_pos1,y_pos1 = self.lat_lon_to_screen_coordinates (lat1,lon1)
-
-                
-                x_pos2,y_pos2 = self.lat_lon_to_screen_coordinates (lat2,lon2)
-                #print(x_pos1,y_pos1,x_pos2,y_pos2)
-                pygame.draw.line(canvas,
-                    color,
-                    (x_pos1,y_pos1),
-                    (x_pos2,y_pos2),
-                    width = 2
-                )
+    
    
     def _draw_shap_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,thickness,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
         

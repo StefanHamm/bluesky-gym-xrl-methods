@@ -29,7 +29,7 @@ if __name__ == "__main__":
     modelpath = f"models/{JOBID}/{env_name}/{env_name}_TD3_singleEnv_baseline_model_mp.zip"
     model = TD3.load(modelpath,device='cpu')
     
-    actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=10, grid_spacing_km=5,export_gifs_path=gifFolder)
+    actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=9, grid_spacing_km=5,export_gifs_path=gifFolder,plot_action_path=True)
     
 
     episodes = 10
