@@ -9,8 +9,7 @@ import bluesky_gym.envs.common.functions as fn
 import os
 import copy
 import imageio
-
-
+from bluesky_gym.utils.constants import NM2KM
 
 class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
     def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, model=None):
@@ -32,6 +31,26 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = DISTANCE_MARGIN # same for this one
         self.d_hdg = D_HEADING
+        self.max_distance = 200  # width of screen in km
+        
+    def lat_lon_to_screen_coordinates(self, lat, lon, *args, **kwargs):
+        ac_idx = bs.traf.id2idx('KL001')
+        qdr, dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], lat, lon)
+        
+        # Convert distance to KM
+        dis_km = dis * NM2KM
+        
+        # Calculate offsets (scale based on max_distance in KM)
+        x_offset = ((np.sin(np.deg2rad(qdr)) * dis_km)/self.max_distance) * self.unwrapped.window_width
+        y_offset = ((np.cos(np.deg2rad(qdr)) * dis_km)/self.max_distance) * self.unwrapped.window_width
+        
+        # Convert to absolute screen coordinates
+        # X: center + offset
+        # Y: center - offset (Y is inverted in screen coords)
+        x_pos = (self.unwrapped.window_width / 2) + x_offset
+        y_pos = (self.unwrapped.window_height / 2) - y_offset
+        
+        return x_pos, y_pos
             
     def reset(self, seed=None, options=None):
         obs,inf = super().reset(seed=seed)
@@ -90,6 +109,9 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
 
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
+        
+        if self.plot_action_path and self.model is not None:
+            self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
 
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
