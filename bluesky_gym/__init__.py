@@ -56,3 +56,9 @@ def register_envs():
         entry_point="bluesky_gym.envs.free_flight_env:FreeFlightCREnv",
         max_episode_steps=60,
     )
+    
+    register(
+        id="PlanWaypointEvadeEnv-v0",
+        entry_point="bluesky_gym.envs.plan_waypoint_evade_env:PlanWaypointEvadeEnv",
+        max_episode_steps=500,
+    )

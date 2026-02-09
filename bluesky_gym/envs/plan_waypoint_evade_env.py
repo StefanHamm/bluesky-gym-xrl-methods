@@ -8,33 +8,31 @@ import bluesky_gym.envs.common.functions as fn
 import gymnasium as gym
 from gymnasium import spaces
 
+NM2KM = 1.852
+
 DISTANCE_MARGIN = 5 # km
 WAYPOINT_DISTANCE_MIN = 0
 WAYPOINT_DISTANCE_MAX = 75
 
+ACTION_PENALTY = -0.2
+SMOOTHNESS_PENALTY = -0.5
+ALIVE_PENALTY = -0.05
+
 NUM_WAYPOINTS = 5
 
-REACH_REWARD = 1
+REACH_REWARD = 15
 AC_SPD = 150
 
 D_HEADING = 45
 
 ACTION_FREQUENCY = 10
 
-class PlanWaypointEnv(gym.Env):
+
+from bluesky_gym.envs.free_flight_env import FreeFlightCREnv,INTRUSION_DISTANCE,NUM_INTRUDERS
+
+class PlanWaypointEvadeEnv(FreeFlightCREnv):
     """ 
-    Dummy environment for horizontal control and rendering testing.
-    Goal of the agent is to fly over the the waypoints and cross as many as possible
-    to score points, similar to traveling salesman problem, but without explicit planning
-    and with euler integration for the turn dynamics.
-
-    For now only heading changes are possible.
-
-    TODO:
-    - More comments
-    - Clean up rendering
-    - More elegant observation function
-    - Speed changes (?)
+    Cobines the Flight Env with the waypoint reaching of the PlanWayointEnv
     
     """
 
@@ -43,20 +41,17 @@ class PlanWaypointEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
     def __init__(self, render_mode=None,workdir=None):
-        self.window_width = 512
-        self.window_height = 512
-        self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
-
-        self.observation_space = spaces.Dict(
+        super().__init__(render_mode=render_mode, workdir=workdir)
+        self.observation_space.spaces.update(
             {
                 "waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
                 "cos_difference": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
                 "sin_difference": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
-                "waypoint_reached": spaces.Box(0, 1, shape = (NUM_WAYPOINTS,), dtype=np.float64)
+                "waypoint_reached": spaces.Box(0, 1, shape = (NUM_WAYPOINTS,), dtype=np.float64),
+                "previous_action": spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
             }
         )
-       
-        self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
+        #self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
@@ -82,6 +77,21 @@ class PlanWaypointEnv(gym.Env):
         """
         self.window = None
         self.clock = None
+        
+        # initialize waypoints
+        self.wpt_lat = []
+        self.wpt_lon = []
+        self.wpt_reach = []
+        self.last_action = np.array([0.0], dtype=np.float64)
+        self.evading = 0
+
+    def _generate_conflicts(self, acid = 'KL001'):
+        target_idx = bs.traf.id2idx(acid)
+        for i in range(NUM_INTRUDERS):
+            dpsi = self.np_random.integers(0,360)
+            cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+            tlosh = self.np_random.integers(50,400)
+            bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
 
 
     def _get_obs(self):
@@ -90,8 +100,13 @@ class PlanWaypointEnv(gym.Env):
         in cosine and sine decomposition.
 
         """
+        
+        parent_obs = super()._get_obs()
+        # set the heading sin cos to 0 degree since we dont have a specific heading to reach
+        parent_obs["sin_own_heading"] = np.array([0], dtype=np.float64)
+        parent_obs["cos_own_heading"] = np.array([1], dtype=np.float64)
 
-        NM2KM = 1.852
+       
         ac_idx = bs.traf.id2idx('KL001')
 
         self.wpt_dis = []
@@ -116,13 +131,14 @@ class PlanWaypointEnv(gym.Env):
             self.drift.append(drift)
 
         observation = {
-                "waypoint_distance": np.clip((np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_dis)/WAYPOINT_DISTANCE_MAX,0,1),
+                "waypoint_distance": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_dis)/(2*WAYPOINT_DISTANCE_MAX),
                 "cos_difference": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_cos),
                 "sin_difference": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_sin),
-                "waypoint_reached": np.array(self.wpt_reach)
+                "waypoint_reached": np.array(self.wpt_reach),
+                "previous_action": np.array(self.last_action)
             }
         
-        return observation
+        return observation | parent_obs
     
     def _get_info(self):
         # Here you implement any additional info that you want to return after a step,
@@ -131,27 +147,69 @@ class PlanWaypointEnv(gym.Env):
         return {
             "total_reward": self.total_reward,
             "waypoints_completed": self.waypoints_completed
-        }
+        } | super()._get_info()
+        
+    def _get_action_penalty(self):
+        return np.abs(self.current_action[0])*ACTION_PENALTY
+    
+    def _get_smoothness_penalty(self):
+        return SMOOTHNESS_PENALTY * np.abs(self.current_action[0] - self.last_action[0])
+    
+    def _get_alive_penalty(self):
+        # 1. Get distances to active waypoints
+        unreached_distances = [
+            d for d, r in zip(self.wpt_dis, self.wpt_reach) if r == 0
+        ]
+
+        if not unreached_distances:
+            return ALIVE_PENALTY
+
+        # 2. Find closest distance
+        closest_dist = min(unreached_distances)
+        
+        # 3. Normalize by DIAMETER (2x Max Radius)
+        # e.g. 150 km
+        MAX_VALID_SEPARATION = 2 * WAYPOINT_DISTANCE_MAX
+        dist_ratio = closest_dist / MAX_VALID_SEPARATION
+
+        # 4. Apply Logic
+        if dist_ratio > 1.0:
+            # Agent is further than 150km from the target.
+            # This implies it is flying away from the arena.
+            # Scale penalty quadratically.
+            return ALIVE_PENALTY * (dist_ratio ** 2)
+        else:
+            # Agent is within a valid traversal distance.
+            # Constant penalty to encourage speed, but no extra punishment.
+            return ALIVE_PENALTY
+    
     
     def _get_reward(self):
 
         # Always return done as false, as this is a non-ending scenario with 
         # new waypoints spawning continously
+        
+        parent_reward, terminated = super()._get_reward()
 
         reach_reward = self._check_waypoint()
-        self.total_reward += reach_reward
+        action_penalty = self._get_action_penalty()
+        alive_penalty = self._get_alive_penalty()
+        smoothness_penalty = self._get_smoothness_penalty()
+        
+        total_reward = reach_reward + action_penalty + alive_penalty + smoothness_penalty + parent_reward
+        self.total_reward += total_reward
 
-        if 0 in self.wpt_reach:
-            return reach_reward, 0
+        if 0 in self.wpt_reach and not terminated:
+            return total_reward, 0
         else:
-            return reach_reward, 1
+            return total_reward, 1
         
     def _get_action(self,action):
-
+        self.current_action = action
         # Transform action to the change in heading
         # action = self.np_random.integers(-100,100)/100
         action = self.ac_hdg + action * D_HEADING
-
+        
         bs.stack.stack(f"HDG KL001 {action[0]}")
 
     def reset(self, seed=None, options=None):
@@ -159,8 +217,9 @@ class PlanWaypointEnv(gym.Env):
 
         self.total_reward = 0
         self.waypoints_completed = 0
+        self.last_action = np.array([0.0], dtype=np.float64)
 
-        bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
+        #bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
 
         self._generate_waypoint()
         observation = self._get_obs()
@@ -174,6 +233,7 @@ class PlanWaypointEnv(gym.Env):
     def step(self, action):
         
         self._get_action(action)
+        self.last_action = action
 
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
@@ -186,12 +246,11 @@ class PlanWaypointEnv(gym.Env):
         reward, terminated = self._get_reward()
 
         info = self._get_info()
+        
 
         # bluesky reset?? bs.sim.reset()
         if terminated:
-            for acid in bs.traf.id:
-                idx = bs.traf.id2idx(acid)
-                bs.traf.delete(idx)
+            bs.traf.reset()
 
         return observation, reward, terminated, False, info
     
@@ -226,6 +285,9 @@ class PlanWaypointEnv(gym.Env):
                 reward += 0
                 index += 1
         return reward
+    
+    def update_evading_status(self,evading):
+        self.evading = evading
 
     def _render_frame(self):
         if self.window is None and self.render_mode == "human":
@@ -235,6 +297,13 @@ class PlanWaypointEnv(gym.Env):
 
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
+            
+            
+        #process pygame events to prevent "not responding" window
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.close()
+                return
 
         max_distance = 200 # width of screen in km
 
@@ -244,11 +313,11 @@ class PlanWaypointEnv(gym.Env):
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
-            (0,0,0),
+            (255*self.evading,0,0),
             (self.window_width/2,self.window_height/2),
             ((self.window_width/2)+heading_end_x,(self.window_height/2)-heading_end_y),
             width = 4
@@ -256,11 +325,11 @@ class PlanWaypointEnv(gym.Env):
 
         # draw heading line
         heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
-            (0,0,0),
+            (255*self.evading,0,0),
             (self.window_width/2,self.window_height/2),
             ((self.window_width/2)+heading_end_x,(self.window_height/2)-heading_end_y),
             width = 1
@@ -269,8 +338,8 @@ class PlanWaypointEnv(gym.Env):
         # draw target waypoint
         for qdr, dis, reach in zip(self.wpt_qdr, self.wpt_dis, self.wpt_reach):
 
-            circle_x = ((np.cos(np.deg2rad(qdr)) * dis)/max_distance)*self.window_width
-            circle_y = ((np.sin(np.deg2rad(qdr)) * dis)/max_distance)*self.window_width
+            circle_x = ((np.sin(np.deg2rad(qdr)) * dis)/max_distance)*self.window_width
+            circle_y = ((np.cos(np.deg2rad(qdr)) * dis)/max_distance)*self.window_width
 
             if reach:
                 color = (155,155,155)
@@ -292,6 +361,62 @@ class PlanWaypointEnv(gym.Env):
                 radius = (DISTANCE_MARGIN/max_distance)*self.window_width,
                 width = 2
             )
+            
+            
+       
+
+        # draw intruders
+        ac_length = 3
+
+        for i in range(NUM_INTRUDERS):
+            int_idx = i+1
+            int_hdg = bs.traf.hdg[int_idx]
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
+
+            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
+
+            # determine color
+            if int_dis < INTRUSION_DISTANCE:
+                color = (220,20,60)
+            else: 
+                color = (80,80,80)
+
+            x_pos = (self.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_width
+            y_pos = (self.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_height
+
+            pygame.draw.line(canvas,
+                color,
+                (x_pos,y_pos),
+                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+                width = 4
+            )
+
+            # draw heading line
+            heading_length = 10
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
+
+            pygame.draw.line(canvas,
+                color,
+                (x_pos,y_pos),
+                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+                width = 1
+            )
+
+            pygame.draw.circle(
+                canvas, 
+                color,
+                (x_pos,y_pos),
+                radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.window_width,
+                width = 2
+            )
+            
+        # draw on the canvas bottom right the evading status as a integer
+        font = pygame.font.SysFont(None, 24)
+        evading_text = font.render(f'Evading: {self.evading} %', True, (0, 0, 0))
+        canvas.blit(evading_text, (self.window_width - 150, self.window_height - 30))
+
 
         self.window.blit(canvas, canvas.get_rect())
         pygame.display.update()
