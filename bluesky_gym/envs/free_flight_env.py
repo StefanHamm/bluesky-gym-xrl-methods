@@ -10,15 +10,16 @@ from gymnasium import spaces
 
 DISTANCE_MARGIN = 5 # km
 #REACH_REWARD = 1
-ALIVE_REWARD = 0.1
+ALIVE_REWARD = 0
 
 
 #DRIFT_PENALTY = -0.1
-INTRUSION_PENALTY = -1
-BUFFER_INTRUSION_PENALTY = -1
-CRASH_PENALTY = -10
-ACTION_PENALTY = -1
-
+INTRUSION_PENALTY = -15
+BUFFER_INTRUSION_PENALTY = -5
+CRASH_PENALTY = -200
+#ACTION_PENALTY = -0.1
+ACTION_PENALTY = -0.05
+HEADING_CHANGE_PENALTY = -2
 
 NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
@@ -28,6 +29,8 @@ BUFFER_INTURSION_DISTANCE = 10 # NM
 
 WAYPOINT_DISTANCE_MIN = 100
 WAYPOINT_DISTANCE_MAX = 150
+
+SENSOR_RANGE = 250 #NM
 
 D_HEADING = 45
 
@@ -60,7 +63,9 @@ class FreeFlightCREnv(gym.Env):
                 "cos_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "sin_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "x_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
-                "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64)
+                "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "cos_own_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                "sin_own_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
                 #"waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
                 #"cos_drift": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
                 #"sin_drift": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64)
@@ -138,9 +143,9 @@ class FreeFlightCREnv(gym.Env):
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
         for i in range(NUM_INTRUDERS):
-            dpsi = self.np_random.integers(45,315)
+            dpsi = self.np_random.integers(0,360)
             cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
-            tlosh = self.np_random.integers(100,1000)
+            tlosh = self.np_random.integers(200,1000)
             bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
 
     # def _generate_waypoint(self, acid = 'KL001'):
@@ -209,13 +214,21 @@ class FreeFlightCREnv(gym.Env):
         #     self.drift.append(drift)
         #     self.cos_drift.append(np.cos(np.deg2rad(drift)))
         #     self.sin_drift.append(np.sin(np.deg2rad(drift)))
+        
+        current_hdg = bs.traf.hdg[ac_idx]
+        current_hdg_rad = np.deg2rad(current_hdg)
+        cos_own_heading = np.cos(current_hdg_rad)
+        sin_own_heading = np.sin(current_hdg_rad)
 
         observation = {
-                "intruder_distance": np.array(self.intruder_distance)/WAYPOINT_DISTANCE_MAX,
+                "intruder_distance": np.clip(np.array(self.intruder_distance)/SENSOR_RANGE, 0, 1),
                 "cos_difference_pos": np.array(self.cos_bearing),
                 "sin_difference_pos": np.array(self.sin_bearing),
                 "x_difference_speed": np.array(self.x_difference_speed)/AC_SPD,
-                "y_difference_speed": np.array(self.y_difference_speed)/AC_SPD
+                "y_difference_speed": np.array(self.y_difference_speed)/AC_SPD,
+                "sin_own_heading": np.array([sin_own_heading]),
+                "cos_own_heading": np.array([cos_own_heading])
+                
                 # "waypoint_distance": np.array(self.waypoint_distance)/WAYPOINT_DISTANCE_MAX,
                 # "cos_drift": np.array(self.cos_drift),
                 # "sin_drift": np.array(self.sin_drift)
@@ -239,6 +252,14 @@ class FreeFlightCREnv(gym.Env):
     def _get_action_penalty(self):
         return np.abs(self.current_action[0])*ACTION_PENALTY
     
+    def _get_heading_change_penalty(self):
+        ac_idx = bs.traf.id2idx('KL001')
+        cur_heading = bs.traf.hdg[ac_idx]
+        # default heading is 0 
+        # convert 0 -360 to -180 - 180
+        cur_heading = fn.bound_angle_positive_negative_180(cur_heading) / 180 # scale to -1 to 1
+        return np.abs(cur_heading)*HEADING_CHANGE_PENALTY
+    
 
     def _get_reward(self):
 
@@ -252,10 +273,11 @@ class FreeFlightCREnv(gym.Env):
         intrusion_reward,terminated = self._check_intrusion()
         alive_reward = self._get_alive_reward()
         action_penalty = self._get_action_penalty()
+        heading_change_penalty = self._get_heading_change_penalty()
         #early_termination_reward, early_terminated = self.terminate_early_reward()
         
 
-        total_reward =  intrusion_reward + alive_reward + action_penalty #+ early_termination_reward
+        total_reward =  intrusion_reward + alive_reward + action_penalty + heading_change_penalty #+ reach_reward + drift_reward + early_termination_reward
         self.total_reward += total_reward
         return total_reward, terminated
 
@@ -344,8 +366,8 @@ class FreeFlightCREnv(gym.Env):
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),
@@ -356,8 +378,8 @@ class FreeFlightCREnv(gym.Env):
 
         # draw heading line
         heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),
@@ -372,8 +394,8 @@ class FreeFlightCREnv(gym.Env):
         for i in range(NUM_INTRUDERS):
             int_idx = i+1
             int_hdg = bs.traf.hdg[int_idx]
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
 
             int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
 
@@ -383,8 +405,8 @@ class FreeFlightCREnv(gym.Env):
             else: 
                 color = (80,80,80)
 
-            x_pos = (self.window_width/2)+(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_width
-            y_pos = (self.window_height/2)-(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_height
+            x_pos = (self.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_width
+            y_pos = (self.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_height
 
             pygame.draw.line(canvas,
                 color,
@@ -395,8 +417,8 @@ class FreeFlightCREnv(gym.Env):
 
             # draw heading line
             heading_length = 10
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
 
             pygame.draw.line(canvas,
                 color,
