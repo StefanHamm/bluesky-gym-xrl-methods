@@ -33,11 +33,12 @@ bluesky_gym.register_envs()
 keywords_mapping = {
     "FreeFlightCREnv-v0": ['total_intrusions'],
     "PlanWaypointEnv-v2": ['waypoints_completed'],
+    "PlanWaypointEvadeEnv-v0": ['waypoints_completed','total_intrusions']
     # Add more mappings for other environments as needed
 }
 
 
-all_envs = ["FreeFlightCREnv-v0","PlanWaypointEnv-v2"]
+all_envs = ["FreeFlightCREnv-v0","PlanWaypointEnv-v2","PlanWaypointEvadeEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
 
 def make_env(logger_path=None):
