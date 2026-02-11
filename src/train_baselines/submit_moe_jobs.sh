@@ -5,7 +5,7 @@
 #SBATCH --time=3:00:00
 #SBATCH --cpus-per-task=25 
 #SBATCH --mem=32G
-#SBATCH --array=0-9
+#SBATCH --array=0-14
 #SBATCH --partition=sunnycove
 # #SBATCH --gres=gpu:1
 # #SBATCH --partition=gpu
