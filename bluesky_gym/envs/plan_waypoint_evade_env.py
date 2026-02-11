@@ -131,7 +131,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
             self.drift.append(drift)
 
         observation = {
-                "waypoint_distance": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_dis)/(2*WAYPOINT_DISTANCE_MAX),
+                "waypoint_distance": (np.array(self.wpt_reach) -1)* -1 * np.clip(np.array(self.wpt_dis)/(2*WAYPOINT_DISTANCE_MAX), 0, 1),
                 "cos_difference": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_cos),
                 "sin_difference": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_sin),
                 "waypoint_reached": np.array(self.wpt_reach),

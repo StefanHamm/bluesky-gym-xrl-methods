@@ -10,7 +10,6 @@ from gymnasium import spaces
 
 DISTANCE_MARGIN = 5 # km
 #REACH_REWARD = 1
-ALIVE_REWARD = 0
 
 
 #DRIFT_PENALTY = -0.1
@@ -246,8 +245,6 @@ class FreeFlightCREnv(gym.Env):
             # 'average_drift': self.average_drift.mean()
         }
         
-    def _get_alive_reward(self):
-        return ALIVE_REWARD
     
     def _get_action_penalty(self):
         return np.abs(self.current_action[0])*ACTION_PENALTY
@@ -271,13 +268,13 @@ class FreeFlightCREnv(gym.Env):
         #reach_reward = self._check_waypoint()
         #drift_reward = self._check_drift()
         intrusion_reward,terminated = self._check_intrusion()
-        alive_reward = self._get_alive_reward()
+    
         action_penalty = self._get_action_penalty()
         heading_change_penalty = self._get_heading_change_penalty()
         #early_termination_reward, early_terminated = self.terminate_early_reward()
         
 
-        total_reward =  intrusion_reward + alive_reward + action_penalty + heading_change_penalty #+ reach_reward + drift_reward + early_termination_reward
+        total_reward =  intrusion_reward + action_penalty + heading_change_penalty #+ reach_reward + drift_reward + early_termination_reward
         self.total_reward += total_reward
         return total_reward, terminated
 
