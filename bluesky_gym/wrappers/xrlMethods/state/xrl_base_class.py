@@ -73,6 +73,7 @@ class xrlBaseWrapper(gym.Wrapper):
                 if self.unwrapped.window is not None:
                     pygame.display.quit()
                 self.close()
+                exit()
                 
     def _save_traffic_state(self):
         return {

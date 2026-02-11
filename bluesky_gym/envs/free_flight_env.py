@@ -142,11 +142,13 @@ class FreeFlightCREnv(gym.Env):
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
         for i in range(NUM_INTRUDERS):
-            dpsi = self.np_random.integers(0,360)
-            cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
-            tlosh = self.np_random.integers(200,1000)
-            bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
-
+           self._create_single_conflict(i,target_idx)
+           
+    def _create_single_conflict(self,int_idx,target_idx):
+        dpsi = self.np_random.integers(0,360)
+        cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+        tlosh = self.np_random.integers(200,1000)
+        bs.traf.creconfs(acid=f'{int_idx}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
     # def _generate_waypoint(self, acid = 'KL001'):
     #     self.wpt_lat = []
     #     self.wpt_lon = []
@@ -180,7 +182,7 @@ class FreeFlightCREnv(gym.Env):
         self.ac_hdg = bs.traf.hdg[ac_idx]
 
         for i in range(NUM_INTRUDERS):
-            int_idx = i+1
+            int_idx = bs.traf.id2idx(f'{i}')
             int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
         
             self.intruder_distance.append(int_dis * NM2KM)
@@ -354,6 +356,7 @@ class FreeFlightCREnv(gym.Env):
                 if self.window is not None:
                     pygame.display.quit()
                 self.close()
+                exit()
 
         max_distance = 200 # width of screen in km
 

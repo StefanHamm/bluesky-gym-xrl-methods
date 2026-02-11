@@ -1,6 +1,6 @@
 import numpy as np
 import pygame
-
+import copy
 import bluesky as bs
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
@@ -9,6 +9,8 @@ import gymnasium as gym
 from gymnasium import spaces
 
 NM2KM = 1.852
+
+SAFE_DISTANCE = 55 #NM
 
 DISTANCE_MARGIN = 5 # km
 WAYPOINT_DISTANCE_MIN = 0
@@ -40,8 +42,11 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
     # for BlueSkyGym probably only implement 1 for now together with None, which is default
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None,workdir=None):
+    def __init__(self, render_mode=None,workdir=None,training = True):
         super().__init__(render_mode=render_mode, workdir=workdir)
+        self.training = training
+        
+        
         self.observation_space.spaces.update(
             {
                 "waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
@@ -51,6 +56,14 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
                 "previous_action": spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
             }
         )
+        
+        if training:
+            # two things need to be removed from the observation space
+            # heading difference cos and sin
+            
+            del self.observation_space.spaces["cos_own_heading"]
+            del self.observation_space.spaces["sin_own_heading"]
+        
         #self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
@@ -84,6 +97,9 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         self.wpt_reach = []
         self.last_action = np.array([0.0], dtype=np.float64)
         self.evading = 0
+        self.respawn_intruder = np.array([False]*NUM_INTRUDERS)
+        self.prev_intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
+    
 
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
@@ -93,6 +109,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
             tlosh = self.np_random.integers(50,400)
             bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
 
+    
 
     def _get_obs(self):
         """
@@ -102,10 +119,15 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         """
         
         parent_obs = super()._get_obs()
-        # set the heading sin cos to 0 degree since we dont have a specific heading to reach
-        parent_obs["sin_own_heading"] = np.array([0], dtype=np.float64)
-        parent_obs["cos_own_heading"] = np.array([1], dtype=np.float64)
-
+        
+        if not self.training:
+            # set the heading sin cos to 0 degree since we dont have a specific heading to reach
+            parent_obs["sin_own_heading"] = np.array([0], dtype=np.float64)
+            parent_obs["cos_own_heading"] = np.array([1], dtype=np.float64)
+        else:
+            #remove from dict
+            del parent_obs["sin_own_heading"]
+            del parent_obs["cos_own_heading"]
        
         ac_idx = bs.traf.id2idx('KL001')
 
@@ -182,7 +204,9 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
             # Agent is within a valid traversal distance.
             # Constant penalty to encourage speed, but no extra punishment.
             return ALIVE_PENALTY
-    
+    def _get_heading_change_penalty(self):
+        # overriden for parent to return 0 since this penalty is not applied anymore
+        return 0
     
     def _get_reward(self):
 
@@ -192,11 +216,11 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         parent_reward, terminated = super()._get_reward()
 
         reach_reward = self._check_waypoint()
-        action_penalty = self._get_action_penalty()
+        #action_penalty = self._get_action_penalty() gets already called in parent
         alive_penalty = self._get_alive_penalty()
         smoothness_penalty = self._get_smoothness_penalty()
         
-        total_reward = reach_reward + action_penalty + alive_penalty + smoothness_penalty + parent_reward
+        total_reward = reach_reward + alive_penalty + smoothness_penalty + parent_reward
         self.total_reward += total_reward
 
         if 0 in self.wpt_reach and not terminated:
@@ -218,6 +242,10 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         self.total_reward = 0
         self.waypoints_completed = 0
         self.last_action = np.array([0.0], dtype=np.float64)
+        
+        self.respawn_intruder = np.array([False]*NUM_INTRUDERS)
+        self.intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
+        self.prev_intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
 
         #bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
 
@@ -232,8 +260,12 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
     
     def step(self, action):
         
+        
+
         self._get_action(action)
         self.last_action = action
+        
+        self.prev_intruder_distance = copy.deepcopy(self.intruder_distance)
 
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
@@ -247,6 +279,8 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
 
         info = self._get_info()
         
+        self._mark_intruders_for_respawn()
+        self._perform_respawns()
 
         # bluesky reset?? bs.sim.reset()
         if terminated:
@@ -254,8 +288,29 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
 
         return observation, reward, terminated, False, info
     
-    def render(self):
-        pass
+    def _perform_respawns(self):
+        for i in range(NUM_INTRUDERS):
+            if self.respawn_intruder[i]:
+                #deltete intruder with id "i"
+                idx = bs.traf.id2idx(f'{i}')
+                if idx >= 0:
+                    bs.traf.delete(idx)
+                
+                # respawn intruder
+                target_idx = bs.traf.id2idx('KL001')
+                if target_idx >= 0:
+                    self._create_single_conflict(i,target_idx)
+                
+                # Reset distance to inf so next step doesn't immediately flag it again
+                self.intruder_distance[i] = np.inf
+                self.respawn_intruder[i] = False
+
+    def _mark_intruders_for_respawn(self):
+        for i,prev_dist in enumerate(self.prev_intruder_distance):
+            if prev_dist< self.intruder_distance[i] and self.intruder_distance[i] >= SAFE_DISTANCE * NM2KM:
+                self.respawn_intruder[i] = True
+                #break#need to stop after one respawn to avoid index mixup
+    
 
     def _generate_waypoint(self, acid = 'KL001'):
         self.wpt_lat = []
@@ -303,6 +358,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
+                exit()
                 return
 
         max_distance = 200 # width of screen in km

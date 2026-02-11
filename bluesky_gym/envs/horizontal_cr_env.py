@@ -289,6 +289,7 @@ class HorizontalCREnv(gym.Env):
                 if self.window is not None:
                     pygame.display.quit()
                 self.close()
+                exit()
 
         max_distance = 200 # width of screen in km
 

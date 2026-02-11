@@ -290,6 +290,7 @@ class PlanWaypointEnvV2(gym.Env):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
+                exit()
                 return
 
         max_distance = 200 # width of screen in km

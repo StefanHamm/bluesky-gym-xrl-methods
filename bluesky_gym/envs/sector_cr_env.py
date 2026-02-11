@@ -373,6 +373,7 @@ class SectorCREnv(gym.Env):
                 if self.window is not None:
                     pygame.display.quit()
                 self.close()
+                exit()
 
         max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.poly_points for point2 in self.poly_points)*NM2KM
         
