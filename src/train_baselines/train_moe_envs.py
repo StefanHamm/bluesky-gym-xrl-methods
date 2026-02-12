@@ -120,20 +120,20 @@ if __name__ == "__main__":
         
         model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed,device="cuda" if torch.cuda.is_available() else "cpu")
         
-        # Calculate frequency roughly equivalent to 100k timesteps
-        n_envs = args.num_cpu if args.make_vec_env else 1
-        save_freq = max(100000 // n_envs, 1)
+        # # Calculate frequency roughly equivalent to 100k timesteps
+        # n_envs = args.num_cpu if args.make_vec_env else 1
+        # save_freq = max(100000 // n_envs, 1)
         
-        # Save checkpoints
-        checkpoint_dir = f"models/{args.jobid}/{env_name}/checkpoints"
-        checkpoint_callback = CheckpointCallback(
-            save_freq=save_freq,
-            save_path=checkpoint_dir,
-            name_prefix=f"{env_name}_{str(algorithm.__name__)}_{suffix}_baseline",
-            verbose=1
-        )
-        
-        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=True, callback=checkpoint_callback)
+        # # Save checkpoints
+        # checkpoint_dir = f"models/{args.jobid}/{env_name}/checkpoints"
+        # checkpoint_callback = CheckpointCallback(
+        #     save_freq=save_freq,
+        #     save_path=checkpoint_dir,
+        #     name_prefix=f"{env_name}_{str(algorithm.__name__)}_{suffix}_baseline",
+        #     verbose=1
+        # )
+        # if want to of checkpoints add callback= checkpoint_callback
+        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=True)
         model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         
         env.close()
