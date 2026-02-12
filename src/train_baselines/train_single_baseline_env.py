@@ -6,7 +6,7 @@ import gymnasium as gym
 from stable_baselines3 import SAC,PPO,TD3,DDPG,A2C
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 import argparse
 import sys
 import bluesky_gym
@@ -17,6 +17,7 @@ from bluesky_gym.utils import logger
 import numpy as np
 import random
 import torch
+from stable_baselines3.common.monitor import Monitor
 
 def set_global_seed(seed):
     np.random.seed(seed)
@@ -27,6 +28,14 @@ def set_global_seed(seed):
 
 
 bluesky_gym.register_envs()
+
+keywords_mapping = {
+    "PlanWaypointEnv-v0": ['waypoints_completed'],
+    "HorizontalCREnv-v0": ['total_intrusions','average_drift'],
+    "SectorCREnv-v0": ['total_intrusions','average_drift'],
+    "StaticObstacleEnv-v0": ['crashed','average_drift','waypoint_reached']
+}
+
 
 all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
@@ -90,17 +99,21 @@ if __name__ == "__main__":
 
     # 3. Run Training (No loops here anymore!)
     log_dir = f'./{args.jobdir}/{env_name}/'
-    file_name = f'{env_name}_{str(algorithm.__name__)}_{suffix}_baseline.csv'
-    csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
+    file_name = f'{env_name}_{str(algorithm.__name__)}_{suffix}_baseline'
+    log_file_path = os.path.join(log_dir, file_name)
+    
+    #csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
     
     if TRAIN:
         if args.make_vec_env:
             print("Using vectorized environment")
             env = make_vec_env(make_env,seed=args.env_seed, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
+            env = VecMonitor(env, filename=log_file_path,info_keywords=keywords_mapping[env_name])
         else:
             print("Using single environment")
             env = make_env()
             env.reset(seed=args.env_seed)
+            env = Monitor(env,filename=log_file_path, info_keywords=keywords_mapping[env_name])
         
     
         policy_type = "MultiInputPolicy"
@@ -108,7 +121,7 @@ if __name__ == "__main__":
         model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed)
         
         
-        model.learn(total_timesteps=int(args.total_timesteps), callback=csv_logger_callback, progress_bar=False)
+        model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
         model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         
         env.close()

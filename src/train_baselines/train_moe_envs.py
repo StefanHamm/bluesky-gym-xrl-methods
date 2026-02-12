@@ -31,9 +31,9 @@ def set_global_seed(seed):
 bluesky_gym.register_envs()
 
 keywords_mapping = {
-    "FreeFlightCREnv-v0": ('total_intrusions',),
-    "PlanWaypointEnv-v2": ('waypoints_completed',),
-    "PlanWaypointEvadeEnv-v0": ('waypoints_completed','total_intrusions')
+    "FreeFlightCREnv-v0": ['total_intrusions'],
+    "PlanWaypointEnv-v2": ['waypoints_completed'],
+    "PlanWaypointEvadeEnv-v0": ['waypoints_completed','total_intrusions']
     # Add more mappings for other environments as needed
 }
 
