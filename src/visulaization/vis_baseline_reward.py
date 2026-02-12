@@ -5,8 +5,10 @@ import os
 import pandas as pd
 import argparse
 import logging
+import json
+import shutil
+import tempfile
 from stable_baselines3.common import results_plotter
-
 
 def moving_average(x, w):
     return np.convolve(x, np.ones(w), 'valid') / w
@@ -85,22 +87,27 @@ def load_csv(file_path, window_size=-1, smoothing_percentage=0.01, align='right'
         
     logging.info(f"Loading data for algorithm: {algorithm_name}")
     
-    try:
-        # Load Monitor file. Skip first line if it is a comment (metadata)
-        with open(file_path, 'r') as f:
-            first_line = f.readline()
-        skiprows = 1 if first_line.startswith('#') else 0
-        
-        # Read CSV
-        df = pd.read_csv(file_path, skiprows=skiprows)
-    except Exception as e:
-        logging.error(f"Error reading {file_path}: {e}")
-        return pd.DataFrame()
-        
+    df = pd.DataFrame()
+    
+    # Use results_plotter.load_results via a temporary directory to handle parsing
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            # Copy file to temp dir so load_results can find it
+            tmp_path = os.path.join(tmp_dir, os.path.basename(file_path))
+            shutil.copy(file_path, tmp_path)
+            
+            # load_results returns a dataframe with all monitor data in the path
+            df = results_plotter.load_results(tmp_dir)
+            
+        except Exception as e:
+            logging.error(f"Error reading {file_path}: {e}")
+            return pd.DataFrame()
+            
     # Check if this is a Monitor file (has 'r' for reward and 'l' for length)
     if 'r' in df.columns and 'l' in df.columns:
         x, y = results_plotter.ts2xy(df, results_plotter.X_TIMESTEPS)
-        df = pd.DataFrame({'timesteps': x, 'total_reward': y})
+        df['timesteps'] = x
+        df['total_reward'] = y
     else:
         # Fallback or pass through if already formatted
         if 'timesteps' not in df.columns and 'l' in df.columns:
