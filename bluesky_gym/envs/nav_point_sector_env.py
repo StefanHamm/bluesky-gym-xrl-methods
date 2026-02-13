@@ -6,7 +6,6 @@ from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import math
 from scipy.spatial import ConvexHull
-import alphashape
 from shapely.geometry import Point
 
 import gymnasium as gym
@@ -117,6 +116,10 @@ class NavWaypointEnv(gym.Env):
         self.center_point = {"lat":0, "lon":0}
         self.subgraph = None
     
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        return None, {}
+    
     def _get_subgraph_around_waypoint(self, waypoint, stencil):
         # get the nodes within the stencil radius
         nodes_in_stencil = []
@@ -129,6 +132,8 @@ class NavWaypointEnv(gym.Env):
         
         # create the subgraph
         subgraph = self.graph.subgraph(nodes_in_stencil).copy()
+        # Remove nodes with no edges
+        subgraph.remove_nodes_from(list(nx.isolates(subgraph)))
         
         return subgraph
     
@@ -136,7 +141,7 @@ class NavWaypointEnv(gym.Env):
         # select a random start and end point from the boundary vertices
         if len(boundary_vertices) < 2:
             return []
-        start, end = np.random.choice(boundary_vertices, size=2, replace=False)
+        start, end = self.np_random.choice(boundary_vertices, size=2, replace=False)
         # find the shortest path between them
         #use networkx shortest path algorithm with weight as distance
         try:
@@ -326,21 +331,26 @@ class NavWaypointEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100)
+    env = NavWaypointEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=150)
+    env.reset(seed=42)
     
-    random_node = np.random.choice(list(env.graph.nodes))
-    env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
-    subgraph = env._get_subgraph_around_waypoint((env.graph.nodes[random_node]['lat'], env.graph.nodes[random_node]['lon']), 100)
-    env.subgraph = subgraph
-    #print number of nodes in subgraph
-    print(f"Subgraph has {subgraph.number_of_nodes()} nodes and {subgraph.number_of_edges()} edges")
-    env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
-    
-    boundary_vertices = env._get_boundary_vertices()
-    
-    agent_nav_path = env._get_agent_nav_path(boundary_vertices)
-    env.agent_nav_path = agent_nav_path
-    
+    # We use env.np_random for consistency with the seeded environment
+    nodes_list = list(env.graph.nodes)
+    if nodes_list:
+        random_node = env.np_random.choice(nodes_list)
+        env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
+        subgraph = env._get_subgraph_around_waypoint((env.graph.nodes[random_node]['lat'], env.graph.nodes[random_node]['lon']), 150)
+        env.subgraph = subgraph
+        #print number of nodes in subgraph
+        print(f"Subgraph has {subgraph.number_of_nodes()} nodes and {subgraph.number_of_edges()} edges")
+        env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
+        
+        boundary_vertices = env._get_boundary_vertices()
+        
+        agent_nav_path = env._get_agent_nav_path(boundary_vertices)
+        env.agent_nav_path = agent_nav_path
+    else:
+        print("Graph is empty, cannot pick random node")
     
     while True:
         env._render_frame()
