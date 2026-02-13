@@ -99,7 +99,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         self.evading = 0
         self.respawn_intruder = np.array([False]*NUM_INTRUDERS)
         self.prev_intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
-    
+        
 
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
@@ -467,12 +467,58 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
                 radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.window_width,
                 width = 2
             )
-            
-        # draw on the canvas bottom right the evading status as a integer
-        font = pygame.font.SysFont(None, 24)
-        evading_text = font.render(f'Evading: {self.evading} %', True, (0, 0, 0))
-        canvas.blit(evading_text, (self.window_width - 150, self.window_height - 30))
 
+        def _draw_gradient_bar( canvas, start_pos, length, thickness, horizontal=True):
+            """
+            Draws a gradient bar (Blue -> Grey -> Red) on the canvas.
+            """
+            for i in range(length):
+                # Normalize i to [-1, 1] for color calculation
+                # value = (i / length) * 2 - 1
+                # val = max(-1, min(1, value))
+                val = (i / length)
+                # Get color
+                # if val < 0:
+                #     t = -val
+                #     color = (int(80 * (1-t)), int(80 * (1-t)), int(80 * (1-t) + 255 * t))
+                # else:
+                #     t = val
+                #     color = (int(80 * (1-t) + 255 * t), int(80 * (1-t)), int(80 * (1-t)))
+                color = (int(255 * val),0,0)
+                # Draw slice
+                if horizontal:
+                    # x varies, y is constant block
+                    pygame.draw.line(canvas, color, (start_pos[0] + i, start_pos[1]), 
+                                                (start_pos[0] + i, start_pos[1] + thickness-3), 1)
+                else:
+                    # y varies, x is constant block
+                    pygame.draw.line(canvas, color, (start_pos[0], start_pos[1] + length - i), 
+                                                (start_pos[0] + thickness-3, start_pos[1] + length - i), 1)
+
+            evade_pos = self.evading * (length - 1)
+            pygame.draw.line(canvas, (255,255,255), (start_pos[0] + evade_pos, start_pos[1]), 
+                                        (start_pos[0] + evade_pos, start_pos[1] + thickness-3), 2)
+            pygame.draw.rect(canvas, (0,0,0), (start_pos[0]-1, start_pos[1], length+3, thickness), 2)
+
+            pos_text = f'Evade'
+            neg_text = f'Control'
+            title_text = f'Gating Metric: {self.evading:.2f}'
+            font = pygame.font.SysFont(None, 24)
+            
+            pos_text = font.render(pos_text, True, (0,0,0))
+            neg_text = font.render(neg_text, True, (0,0,0))
+            title_text = font.render(title_text, True, (0,0,0))
+            # Get dimensions
+            pos_w, pos_h = pos_text.get_size()
+            neg_w, neg_h = neg_text.get_size()
+            title_w, title_h = title_text.get_size()
+            
+            canvas.blit(neg_text, (start_pos[0] , start_pos[1] + thickness + 5))
+            canvas.blit(pos_text, (start_pos[0] + length - pos_w, start_pos[1] + thickness + 5))
+            canvas.blit(title_text, (start_pos[0] + (length- title_w)//2, start_pos[1] - 20))
+            
+        startpos = (10, self.window_height - 40)
+        _draw_gradient_bar(canvas, startpos, 200, 20, horizontal=True)
 
         self.window.blit(canvas, canvas.get_rect())
         pygame.display.update()

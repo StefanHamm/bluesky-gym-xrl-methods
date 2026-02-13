@@ -27,10 +27,10 @@ algorithms = [SAC, PPO, TD3, DDPG, A2C]
 env=gym.make(env_name,render_mode="human",training = True) #training true for the training version of the env, false for the testing version, which has more information in the observation space and a different reward function.  
 env.metadata["render_fps"] = 100  # Set the desired FPS for rendering
 
-#model = SAC("MultiInputPolicy", env, verbose=0, learning_rate=3e-4, seed=41)
+model = SAC("MultiInputPolicy", env, verbose=0, learning_rate=3e-4, seed=41)
 #model = SAC.load(f"models/01/{env_name}/checkpoints/{env_name}_SAC_vecEnvLogs_baseline_2000000_steps.zip")
 #model = SAC.load(r"models\01\FreeFlightCREnv-v0\checkpoints\FreeFlightCREnv-v0_SAC_vecEnvLogs_baseline_500000_steps.zip")    
-     
+model = SAC.load(r"models\4901832\PlanWaypointEvadeEnv-v0\PlanWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip")
 env.reset(seed=41)
 
 for x in range(19):
@@ -39,8 +39,8 @@ for x in range(19):
     total_reaward = 0
     
     for x in range(500):
-        #action, _states = model.predict(obs, deterministic=True)
-        action = np.array([0.])
+        action, _states = model.predict(obs, deterministic=True)
+        #ction = np.array([0.])
         obs, reward, terminated, truncated, info = env.step(action)
         total_reaward += reward
         

@@ -3,6 +3,9 @@ from stable_baselines3 import SAC,TD3,DDPG,PPO
 import bluesky_gym
 import numpy as np
 from src.XRL.moeAgent.controlEvade import ThresholdGating, BlendingGating
+from bluesky_gym.envs.free_flight_env import SENSOR_RANGE
+from bluesky_gym.utils.constants import NM2KM
+
 bluesky_gym.register_envs()
 
 
@@ -16,14 +19,14 @@ def metric_extractor(obs):
 
 if __name__ == "__main__":
     env_name = 'PlanWaypointEvadeEnv-v0'
-    env = gym.make(env_name,render_mode='human')
+    env = gym.make(env_name,render_mode='human',training=False)
     env.reset(seed=42)
     evade_env_name = 'FreeFlightCREnv-v0'
     control_env_name = 'PlanWaypointEnv-v2'
     
     
     
-    control_modelpath = f"models/01/{control_env_name}/{control_env_name}_SAC_vecEnvLogs_baseline_model_mp.zip"
+    control_modelpath = r"models\4901832\PlanWaypointEnv-v2\PlanWaypointEnv-v2_SAC_vecEnvLogs_baseline_model_mp.zip"
     control_model = SAC.load(control_modelpath,device='cpu')
     control_keywords = [
         "waypoint_distance",
@@ -33,7 +36,7 @@ if __name__ == "__main__":
         "previous_action"
     ]
     
-    evade_modelpath = f"models/01/{evade_env_name}/{evade_env_name}_SAC_vecEnvLogs_baseline_model_mp.zip"
+    evade_modelpath = r"models\4901832\FreeFlightCREnv-v0\FreeFlightCREnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
     evade_model = SAC.load(evade_modelpath,device='cpu')
     evade_keywords = [
         "intruder_distance",
@@ -47,24 +50,36 @@ if __name__ == "__main__":
     
     print(control_model.observation_space)
     
+    min_nm = 7
+    max_nm = 15
+    
+    
+    
+    min_normed = min_nm * NM2KM / SENSOR_RANGE
+    max_normed = max_nm * NM2KM / SENSOR_RANGE
+    
+    
+    
     gated_model = ThresholdGating(
     controlModel=control_model, 
     evadeModel=evade_model,
     controlKeys=control_keywords,
     evadeKeys=evade_keywords,
-    threshold=0.15, 
+    threshold=min_normed, 
     metric_extractor=metric_extractor
 )
     
-    gated_model = BlendingGating(
-    controlModel=control_model, 
-    evadeModel=evade_model,
-    controlKeys=control_keywords,
-    evadeKeys=evade_keywords,
-    min_val=0.05,
-    max_val=0.2, 
-    metric_extractor=metric_extractor
-)
+    
+ 
+#     gated_model = BlendingGating(
+#     controlModel=control_model, 
+#     evadeModel=evade_model,
+#     controlKeys=control_keywords,
+#     evadeKeys=evade_keywords,
+#     min_val=min_normed,  # sensor range is 250 NM
+#     max_val=max_normed, 
+#     metric_extractor=metric_extractor
+# )
     
     
     episodes = 10
