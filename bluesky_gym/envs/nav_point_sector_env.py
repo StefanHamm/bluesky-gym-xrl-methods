@@ -24,18 +24,30 @@ NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
 INTRUSION_DISTANCE = 5 # NM
 
-MIN_ROUTE_LENGTH = 30 #
+MIN_ROUTE_LENGTH = 9 #
 
 WAYPOINT_DISTANCE_MIN = 100
 WAYPOINT_DISTANCE_MAX = 150
 
 D_HEADING = 45
 
-AC_SPD = 150
+AC_SPD = 150 #m/s
 
 NM2KM = 1.852
+KT2MPS = 0.514444
 
-ACTION_FREQUENCY = 10
+ACTION_FREQUENCY = 1
+
+FT_TO_M = 0.3048
+AC_TYPE = "A320"
+
+FLIGHT_LEVEL = 340 #FL340
+FLIGHT_LEVEL_FT = FLIGHT_LEVEL * 100
+FLIGHT_LEVEL_M = FLIGHT_LEVEL_FT * FT_TO_M 
+
+VETICAL_SEPARATION_IN_FT = 1000
+VERTICAL_SEPARATION_IN_M = VETICAL_SEPARATION_IN_FT * FT_TO_M
+
 
 # NAVPOINTS
 EDGES_PATH = "data/edges.csv"
@@ -76,8 +88,8 @@ class NavWaypointEnv(gym.Env):
     Args:
         gym (_type_): _description_
     """
-    metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
-    def __init__(self, render_mode=None, window_width=800,window_height=800, stencil_radius_in_km = 100):
+    metadata = {"render_modes": ["rgb_array","human"], "render_fps": 20}
+    def __init__(self, render_mode=None, window_width=800,window_height=800, stencil_radius_in_km = 100, show_altitude_in_rendering=True):
         super().__init__()
         
         # load the graph
@@ -85,13 +97,41 @@ class NavWaypointEnv(gym.Env):
         self.graph = load_graph(VERTICES_PATH, EDGES_PATH)
         self.window_width = window_width
         self.window_height = window_height
-        self.window_size = (window_width, window_height)
+        if show_altitude_in_rendering:
+            self.window_height +=200
+            self.show_altitude_in_rendering = True
+        
+        
+        self.window_size = (self.window_width, self.window_height)
         self.window = None
         self.clock = None
         self.agent_nav_path = None
         
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
+        
+        self.observation_space = spaces.Dict(
+            {
+                "intruder_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "cos_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "sin_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "x_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64), # always has previous current and next waypoint this allows it to learn the drift in airway.
+                "waypoint_cos_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
+                "waypoint_sin_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
+                "waypoint_mask": spaces.Box(0, 1, shape = (3,), dtype=np.float64), # this indicates if the waypoints exists. only valid for the last obs
+                
+            }
+        )
+        
+        # initialize bluesky as non-networked simulation node
+        if bs.sim is None:
+            bs.init(mode='sim', detached=True)
+
+        # initialize dummy screen and set correct sim speed
+        bs.scr = ScreenDummy()
+        bs.stack.stack('DT 1;FF')
 
         # Only consider nodes with 'pos' attribute for min/max calculations
         latlon_nodes = [(data['lat'], data['lon']) for _, data in self.graph.nodes(data=True) if 'lat' in data and 'lon' in data]
@@ -115,10 +155,108 @@ class NavWaypointEnv(gym.Env):
         self.stencil_radius_in_km = stencil_radius_in_km
         self.center_point = {"lat":0, "lon":0}
         self.subgraph = None
+        self.boundary_vertices = None
+        self.intruder_paths = []
+    
+    
+    def step(self, action):
+        
+        #self._get_action(action)
+
+        action_frequency = ACTION_FREQUENCY
+        for i in range(action_frequency):
+            bs.sim.step()
+            if self.render_mode == "human":
+                observation =  None #self._get_obs()
+                self._render_frame()
+
+        observation = None #self._get_obs()
+        reward, terminated = None,None #self._get_reward()
+
+        info =  None #self._get_info()
+
+        # bluesky reset?? bs.sim.reset()
+        if terminated:
+            for acid in bs.traf.id:
+                idx = bs.traf.id2idx(acid)
+                bs.traf.delete(idx)
+
+        return observation, reward, terminated, False, info
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        return None, {}
+        bs.traf.reset()
+        number_of_vertices = 0
+        
+        while number_of_vertices < 10:
+            random_node = self.np_random.choice(list(self.graph.nodes))
+            self.center_point = {"lat": self.graph.nodes[random_node]['lat'], "lon": self.graph.nodes[random_node]['lon']}
+            subgraph = self._get_subgraph_around_waypoint((self.center_point["lat"], self.center_point["lon"]), self.stencil_radius_in_km)
+            self.subgraph = subgraph
+            number_of_vertices = self.subgraph.number_of_nodes()
+        
+        self.boundary_vertices = self._get_boundary_vertices()
+        self.agent_nav_path = self._get_agent_nav_path(self.boundary_vertices)
+        self.intruder_paths = []
+        for _ in range(NUM_INTRUDERS-1):
+            intruder_path = self._intersecting_nav_path(self.agent_nav_path,self.boundary_vertices)
+            
+            if len(intruder_path) > MIN_ROUTE_LENGTH:
+                # randomly drop the first 1-3 waypoints on each end
+                drop_start = self.np_random.integers(0, 3)
+                drop_end = self.np_random.integers(0, 3)
+                intruder_path = intruder_path[drop_start:-drop_end]
+                    
+                if intruder_path:
+                    self.intruder_paths.append(intruder_path)
+        # add a last intruder path where its just the reverse of the agent path
+        conflict_intruder_path = self.agent_nav_path[::-1]
+        self.intruder_paths.append(conflict_intruder_path)
+        self._spawn_agent()
+        self._spawn_intruders()
+    
+    def _spawn_agent(self):
+        # calculate heading between first two waypoints
+        # Now agent_nav_path contains dicts, so we access lat/lon directly
+        p0 = self.agent_nav_path[0]
+        p1 = self.agent_nav_path[1]
+        bearing, _ = bs.tools.geo.kwikqdrdist(p0['lat'], p0['lon'], p1['lat'], p1['lon'])
+        # spawn the agent on the first waypoint with the calculated heading and speed of AC_SPD
+        bs.traf.cre('KL001',actype="A320",acspd=AC_SPD,acalt=FLIGHT_LEVEL_M,aclat = p0["lat"],aclon=p0["lon"],achdg=bearing)
+        
+    def _spawn_intruders(self):
+        for i, intruder_path in enumerate(self.intruder_paths):
+            acid = f'INT{i:03d}'
+            idx = bs.traf.id2idx(f'INT{i:03d}')
+            if intruder_path:
+                p0 = intruder_path[0]
+                p1 = intruder_path[1]
+                bearing, _ = bs.tools.geo.kwikqdrdist(p0['lat'], p0['lon'], p1['lat'], p1['lon'])
+                bs.traf.cre(acid,actype="A320",acspd=AC_SPD,acalt=FLIGHT_LEVEL_M,aclat = p0["lat"],aclon=p0["lon"],achdg=bearing)
+
+                route_obj = bs.traf.ap.route[idx] # Get the specific route instance
+
+            # 3. Add Waypoints
+            for j, node in enumerate(intruder_path[1:]):
+                
+                # Name: Must be unique-ish (e.g., INT001_WP1)
+                wp_name = f"{acid}_WP{j}"
+                
+                # Type: Access the constant 'wplatlon' directly from the object
+                # This ensures we match 'if wptype == Route.wplatlon:' in the source code
+                wp_type = route_obj.wplatlon 
+                
+                route_obj.addwpt(
+                    idx,           # Arg 1: iac (Aircraft Index) - REQUIRED
+                    wp_name,       # Arg 2: name (String) - REQUIRED
+                    wp_type,       # Arg 3: wptype (Int Constant) - REQUIRED
+                    node['lat'],   # Arg 4: lat
+                    node['lon'],   # Arg 5: lon
+                    FLIGHT_LEVEL_M,  # Arg 6: alt (Optional but recommended)
+                    AC_SPD         # Arg 7: spd (Optional but recommended)
+                )
+                bs.traf.swlnav[idx] = 1
+                bs.traf.actwp.turnbank[idx]= 45.0
     
     def _get_subgraph_around_waypoint(self, waypoint, stencil):
         # get the nodes within the stencil radius
@@ -137,16 +275,65 @@ class NavWaypointEnv(gym.Env):
         
         return subgraph
     
-    def _get_agent_nav_path(self,boundary_vertices):
+    def _get_agent_nav_path(self, boundary_vertices):
         # select a random start and end point from the boundary vertices
         if len(boundary_vertices) < 2:
             return []
         start, end = self.np_random.choice(boundary_vertices, size=2, replace=False)
         # find the shortest path between them
-        #use networkx shortest path algorithm with weight as distance
+        # use networkx shortest path algorithm with weight as distance
         try:
-            path = nx.shortest_path(self.subgraph, source=start, target=end, weight='weight')
-            return path
+            path_ids = nx.shortest_path(self.subgraph, source=start, target=end, weight='weight')
+            # Convert list of IDs to list of node data dicts (with 'id' added)
+            path_data = []
+            for node_id in path_ids:
+                node_data = self.subgraph.nodes[node_id].copy()
+                node_data['id'] = node_id
+                path_data.append(node_data)
+            return path_data
+        except nx.NetworkXNoPath:
+            return []
+        
+    def _intersecting_nav_path(self, agent_path, boundary_vertices):
+        # take two random boundary vertices that are not in the agent path
+        if len(boundary_vertices) < 4:
+            return []
+            
+        # extract just IDs for comparison since agent_path is now enriched
+        agent_path_ids = [node['id'] for node in agent_path]
+        
+        # the boundary vertices in the agent path are 0 and -1, so we need to exclude them from the random selection
+        # so just remove them from the list of boundary vertices and then select from the remaining ones
+        available_vertices = [v for v in boundary_vertices if v not in agent_path_ids]
+        if len(available_vertices) < 2:
+            return []
+        
+        start, end = self.np_random.choice(available_vertices, size=2, replace=False)
+        # take a random point on the agent path as the intersection point
+        if len(agent_path) < 3:
+            return []
+            
+        # Select intersection node from the enriched path
+        intersection_node_data = self.np_random.choice(agent_path[1:-1])
+        intersection_point = intersection_node_data['id']
+        
+        # find the shortest path from start to intersection point and from end to intersection point
+        try:
+            path1 = nx.shortest_path(self.subgraph, source=start, target=intersection_point, weight='weight')
+            path2 = nx.shortest_path(self.subgraph, source=end, target=intersection_point, weight='weight')
+            # combine the two paths to create the intersecting path
+            # path1 goes start->intersection, path2 goes end->intersection
+            # we want start->intersection->end? The original code did: path1[:-1] + path2[::-1]
+            intersecting_path_ids = path1[:-1] + path2[::-1]
+            
+            # Convert list of IDs to list of node data dicts
+            path_data = []
+            for node_id in intersecting_path_ids:
+                node_data = self.subgraph.nodes[node_id].copy()
+                node_data['id'] = node_id
+                path_data.append(node_data)
+                
+            return path_data
         except nx.NetworkXNoPath:
             return []
     
@@ -253,6 +440,109 @@ class NavWaypointEnv(gym.Env):
         text = font.render(f"{scale_length_in_km} km", True, (0,0,0))
         canvas.blit(text, (50, self.window_height-80))
         return canvas
+    
+    def _draw_vercial_seperation(self,canvas,stepsize_in_feet = 1000,steps_from_fl=2):
+        # draw a horizontal line in the middle of y = 100 
+        # thats where FL340 
+        
+        # first draw a rectangle  with solid color over the 200 pixel height to make it look better
+        pygame.draw.rect(canvas, (135,206,235), pygame.Rect(0, 0, self.window_width, 200))
+        
+        # Total vertical range covered by the visualization in pixels
+        viz_height_px = 200
+        center_y = viz_height_px // 2
+        # Total number of steps shown (e.g., if steps_from_fl is 2, there are 5 lines)
+        total_steps = 2 * steps_from_fl + 1
+        # Pixels per foot in this specific visualization
+        px_per_foot = viz_height_px / (total_steps * stepsize_in_feet)
+        
+        lines_y = []
+        labels = []
+        for i in range(-steps_from_fl,steps_from_fl+1):
+            # the place for the visualization is the top 200 pixel of the screen
+            y = int((steps_from_fl - i)*200/(2*steps_from_fl+1))
+            lines_y.append(y)
+            labels.append(f"FL{(FLIGHT_LEVEL*100 + (i*stepsize_in_feet))//100}")
+            
+            if i == 0:
+                color=(255,0,0)
+            else:
+                color=(0,0,0)
+            
+            pygame.draw.line(canvas, color, (0, y), (self.window_width, y), 1)
+            font = pygame.font.SysFont(None, 24)
+            
+            
+            text = font.render(labels[-1], True, (0,0,0))
+            canvas.blit(text, (10, y+5))
+            
+        # draw intruders in the visualization 
+        own_idx = bs.traf.id2idx('KL001')
+        for i in range(NUM_INTRUDERS):
+            try:
+                int_idx = bs.traf.id2idx(f'INT{i:03d}')
+                if int_idx < 0:
+                    continue
+                
+                # 1. Calculate Y position based on foot-difference from your reference FL
+                int_alt_ft = bs.traf.alt[int_idx] / FT_TO_M
+                alt_diff_ft = int_alt_ft - (FLIGHT_LEVEL * 100)
+                
+                # Vertical Position: Center (100) minus the displacement
+                y_pos = int(center_y - (alt_diff_ft * px_per_foot)- 500*px_per_foot) # the 500*px_per_foot is to move the whole visualization up so that FL340 is in the middle of the screen instead of at the bottom
+                
+                int_lat = bs.traf.lat[int_idx]
+                int_lon = bs.traf.lon[int_idx]
+                
+                x_pos, _ = self.lat_lon_to_screen_coordinates(int_lat, int_lon)
+                
+                
+                
+                # 2. Calculate Box Dimensions
+                # Width uses horizontal scaling (KM/NM to Pixels)
+                intrusion_width_in_px = int((INTRUSION_DISTANCE * NM2KM) * self.px_per_km*2)
+                
+                # Height uses vertical scaling (1000 feet converted to pixels)
+                # This ensures 1000ft separation always spans exactly one 'step' in your grid
+                intrusion_height_in_px = int(1000 * px_per_foot)
+                
+                
+                # Check for conflict with ownship if ownship exists
+                color = (80,80,80) # Default grey
+                pygame.draw.circle(canvas, color, (x_pos, y_pos), 5)
+                if own_idx >= 0:
+                    own_lat = bs.traf.lat[own_idx]
+                    own_lon = bs.traf.lon[own_idx]
+                    own_alt = bs.traf.alt[own_idx]
+                    _, int_dis = bs.tools.geo.kwikqdrdist(own_lat, own_lon, int_lat, int_lon)
+                    int_alt = bs.traf.alt[int_idx]
+                    
+                    if int_dis < INTRUSION_DISTANCE and abs(int_alt - own_alt) < VERTICAL_SEPARATION_IN_M:
+                        color = (220,20,60) # Red if conflict
+                
+                
+                intrusion_rect = pygame.Rect(
+                    x_pos - intrusion_width_in_px // 2, 
+                    y_pos - intrusion_height_in_px // 2, 
+                    intrusion_width_in_px, 
+                    intrusion_height_in_px
+                )
+                
+                pygame.draw.rect(canvas, color, intrusion_rect, 1)
+            except ValueError:
+                continue
+            
+        # draw ownhsip in the visualization
+        own_altitude = bs.traf.alt[own_idx] / FT_TO_M
+        alt_diff_ft = own_altitude - (FLIGHT_LEVEL * 100)
+        x_pos,_ = self.lat_lon_to_screen_coordinates(bs.traf.lat[own_idx], bs.traf.lon[own_idx])
+        own_y_pos = int(center_y - (alt_diff_ft * px_per_foot)- 500*px_per_foot)
+        pygame.draw.circle(canvas, (0,0,0), (x_pos, own_y_pos), 5)
+        
+        
+        return canvas
+        
+        
 
     
     def _render_frame(self):
@@ -261,6 +551,8 @@ class NavWaypointEnv(gym.Env):
         canvas.fill((135,206,235))
         
         canvas = self._plot_scale(canvas)
+        
+        
         
         edge_coords = []
         for u, v in self.subgraph.edges():
@@ -288,7 +580,8 @@ class NavWaypointEnv(gym.Env):
                 x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
                 
                 color = (255, 0, 0)
-                if self.agent_nav_path and node in self.agent_nav_path:
+                # Check if node id is in the agent path (which is now a list of dicts)
+                if self.agent_nav_path and node in [p['id'] for p in self.agent_nav_path]:
                     color = (255, 255, 0)
                 
                 pygame.draw.circle(canvas, color, (int(x), int(y)), 3) 
@@ -300,58 +593,144 @@ class NavWaypointEnv(gym.Env):
                 x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
                 
                 color = (0, 0, 255)
-                if self.agent_nav_path and node in self.agent_nav_path:
+                # Check if node id is in the agent path
+                if self.agent_nav_path and node in [p['id'] for p in self.agent_nav_path]:
                     color = (255, 255, 0)
                 
                 pygame.draw.circle(canvas, color, (int(x), int(y)), 3)
+                
+                
         
-        # plot a sample plane on the center
-        # it must be the plane and the intrusion circle with radius of 5 NM
-        center_x = int(self.window_width / 2)
-        center_y = int(self.window_height / 2)
         
-        # Intrusion Circle
-        radius_px = int(INTRUSION_DISTANCE * NM2KM * self.px_per_km)
-        pygame.draw.circle(canvas, (255, 0, 0), (center_x, center_y), radius_px, 1)
+       
 
-        # Ownship Triangle facing North
-        # North is Up (negative Y)
-        size = 10
-        points = [
-            (center_x, center_y - size),           # Top point
-            (center_x - size / 1.5, center_y + size), # Bottom left
-            (center_x + size / 1.5, center_y + size)  # Bottom right
-        ]
-        pygame.draw.polygon(canvas, (0, 0, 0), points)
+    
         
         
+        #DRAW INTRUDERS 
+        try:
+            own_idx = bs.traf.id2idx('KL001')
+        except:
+            own_idx = -1
+
+        for i in range(NUM_INTRUDERS):
+            try:
+                int_idx = bs.traf.id2idx(f'INT{i:03d}')
+                if int_idx < 0:
+                    continue
+                
+                int_lat = bs.traf.lat[int_idx]
+                int_lon = bs.traf.lon[int_idx]
+                int_hdg = bs.traf.hdg[int_idx]
+                ac_spd = bs.traf.cas[int_idx]
+                
+                x_pos, y_pos = self.lat_lon_to_screen_coordinates(int_lat, int_lon)
+                
+                # Check for conflict with ownship if ownship exists
+                color = (80,80,80) # Default grey
+                if own_idx >= 0:
+                    own_lat = bs.traf.lat[own_idx]
+                    own_lon = bs.traf.lon[own_idx]
+                    _, int_dis = bs.tools.geo.kwikqdrdist(own_lat, own_lon, int_lat, int_lon)
+                    if int_dis < INTRUSION_DISTANCE:
+                        color = (220,20,60) # Red if conflict
+
+                # Draw intruder position
+                pygame.draw.circle(canvas, color, (int(x_pos), int(y_pos)), 5)
+
+                # Draw heading vector
+                # Length of heading vector in pixels (e.g., representing 2km)
+                heading_len_km = 240 * (ac_spd) / 1000  # Scale by speed for better visualization
+                heading_len_px = heading_len_km * self.px_per_km
+                
+                end_x = x_pos + np.sin(np.deg2rad(int_hdg)) * heading_len_px
+                end_y = y_pos - np.cos(np.deg2rad(int_hdg)) * heading_len_px
+                
+                pygame.draw.line(canvas, color, (int(x_pos), int(y_pos)), (int(end_x), int(end_y)), 2)
+
+                # Draw intrusion circle (optional, or maybe just around ownship)
+                # If we want to visualize the protection zone around the intruder:
+                radius_px = int(INTRUSION_DISTANCE * NM2KM * self.px_per_km)
+                pygame.draw.circle(canvas, color, (int(x_pos), int(y_pos)), radius_px, 1)
+
+            except ValueError:
+                # Intruder not found
+                print(ValueError)
+                continue
+        
+        
+        # Draw agent heading vector
+        try:
+            own_idx = bs.traf.id2idx('KL001')
+            if own_idx >= 0:
+                own_lat = bs.traf.lat[own_idx]
+                own_lon = bs.traf.lon[own_idx]
+                own_hdg = bs.traf.hdg[own_idx]
+                ac_spd = bs.traf.cas[own_idx]
+
+                x_pos, y_pos = self.lat_lon_to_screen_coordinates(own_lat, own_lon)
+                
+
+
+                
+                # Intrusion Circle
+                radius_px = int(INTRUSION_DISTANCE * NM2KM * self.px_per_km)
+                pygame.draw.circle(canvas, (0, 0, 0), (x_pos, y_pos), radius_px, 1)
+
+                # Draw heading vector for the agent
+                heading_len_km = 240 * (ac_spd ) / 1000  # Scale by speed for better visualization
+                
+                
+                heading_len_px = heading_len_km * self.px_per_km
+
+                end_x = x_pos + np.sin(np.deg2rad(own_hdg)) * heading_len_px
+                end_y = y_pos - np.cos(np.deg2rad(own_hdg)) * heading_len_px
+                
+                # Draw intruder position
+                pygame.draw.circle(canvas, (0,0,0), (int(x_pos), int(y_pos)), 5)
+
+                pygame.draw.line(canvas, (0, 0, 0), (int(x_pos), int(y_pos)), (int(end_x), int(end_y)), 2)
+        except ValueError:
+            # Agent not found
+            print(ValueError)
+            
+            
+        if self.show_altitude_in_rendering:
+            canvas = self._draw_vercial_seperation(canvas)
+
         self._post_render(canvas)
         
 
 
 
 if __name__ == "__main__":
-    env = NavWaypointEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=150)
-    env.reset(seed=42)
-    
-    # We use env.np_random for consistency with the seeded environment
-    nodes_list = list(env.graph.nodes)
-    if nodes_list:
-        random_node = env.np_random.choice(nodes_list)
-        env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
-        subgraph = env._get_subgraph_around_waypoint((env.graph.nodes[random_node]['lat'], env.graph.nodes[random_node]['lon']), 150)
-        env.subgraph = subgraph
-        #print number of nodes in subgraph
-        print(f"Subgraph has {subgraph.number_of_nodes()} nodes and {subgraph.number_of_edges()} edges")
-        env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
+    env = NavWaypointEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100)
+    env.metadata["render_fps"] = 20
+    env.reset(seed=47)
+    env.reset()
+    # # We use env.np_random for consistency with the seeded environment
+    # nodes_list = list(env.graph.nodes)
+    # if nodes_list:
+    #     random_node = env.np_random.choice(nodes_list)
+    #     env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
+    #     subgraph = env._get_subgraph_around_waypoint((env.graph.nodes[random_node]['lat'], env.graph.nodes[random_node]['lon']), 100)
+    #     env.subgraph = subgraph
+    #     #print number of nodes in subgraph
+    #     print(f"Subgraph has {subgraph.number_of_nodes()} nodes and {subgraph.number_of_edges()} edges")
+    #     env.center_point = {"lat": env.graph.nodes[random_node]['lat'], "lon": env.graph.nodes[random_node]['lon']}
         
-        boundary_vertices = env._get_boundary_vertices()
+    #     boundary_vertices = env._get_boundary_vertices()
         
-        agent_nav_path = env._get_agent_nav_path(boundary_vertices)
-        env.agent_nav_path = agent_nav_path
-    else:
-        print("Graph is empty, cannot pick random node")
-    
+    #     agent_nav_path = env._get_agent_nav_path(boundary_vertices)
+    #     env.agent_nav_path = agent_nav_path
+    # else:
+    #     print("Graph is empty, cannot pick random node")
+    idx = bs.traf.id2idx("KL001")
+    action = bs.traf.hdg[idx] + 1 * 90
+    i=0
+    #bs.stack.stack(f"HDG KL001 {action}")
     while True:
-        env._render_frame()
-        
+        env.step(0)
+        i=i+1
+        print(i)
+        print(bs.traf.hdg[idx])
