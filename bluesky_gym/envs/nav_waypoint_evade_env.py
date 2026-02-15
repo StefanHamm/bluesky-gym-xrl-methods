@@ -12,17 +12,29 @@ import gymnasium as gym
 from gymnasium import spaces
 import networkx as nx
 
+SENSOR_RANGE = 200 #km
+
 DISTANCE_MARGIN = 5 # km
-REACH_REWARD = 1
 
 AIRWAY_WIDTH = 8 # NM
 
-DRIFT_PENALTY = -0.1
+DEBUG = False
+
+
+# REWARDS
+REACH_REWARD = 5
+DRIFT_PENALTY = -0.5
 INTRUSION_PENALTY = -1
+CORRIDOR_LEAVE_PENALTY = -1
+CRASH_PENALTY = -100
+ALTITUDE_PENALTY = -0.5
+
+
 
 NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
 INTRUSION_DISTANCE = 5 # NM
+CRASH_DISTANCE = 1 # NM for horizontal seperation
 
 MIN_ROUTE_LENGTH = 9 #
 
@@ -48,10 +60,44 @@ FLIGHT_LEVEL_M = FLIGHT_LEVEL_FT * FT_TO_M
 VETICAL_SEPARATION_IN_FT = 1000
 VERTICAL_SEPARATION_IN_M = VETICAL_SEPARATION_IN_FT * FT_TO_M
 
+WAYPOINT_REACH_DISTANCE = 5 # NM
 
 # NAVPOINTS
 EDGES_PATH = "data/edges.csv"
 VERTICES_PATH = "data/vertices.csv"
+
+
+# --- ATC REALISM COLOR PALETTE ---
+COLORS = {
+    "BACKGROUND": (20, 24, 28),         # Deep Radar Grey/Black
+    "VERTICAL_BG": (30, 35, 40),        # UI panels
+    "TEXT": (200, 220, 220),            # Off-white/Pale Cyan
+    "GRID_LINES": (60, 70, 80),         # Subtle grid lines
+    
+    # Aircraft & Traffic
+    "OWNSHIP": (100, 255, 218),         # Cyan/Teal
+    "INTRUDER_SAFE": (255, 191, 0),     # Amber/Orange
+    "INTRUDER_CONFLICT": (255, 50, 50), # Bright Red
+    "TRAIL": (100, 100, 100),           # Grey for trails
+    
+    # Navigation
+    "AIRWAY": (46, 139, 87),            # SeaGreen (Generic)
+    "AIRWAY_ACTIVE": (0, 255, 40),     # Strong green (Active Route)
+    "WAYPOINT": (169, 169, 169),        # Dark Grey
+    "WAYPOINT_ACTIVE": (255, 255, 255), # White
+    
+    # --- NEW: Airway Specifics ---
+    "AIRWAY_CORRIDOR": (35, 55, 45),    # Dark background width (Safe Airspace)
+    "AIRWAY_CENTER": (80, 120, 100),    # Sharp foreground line (Centerline)
+    
+    # Debug/Logic (Bisectors)
+    "BISECTOR_PASSED": (60, 60, 80),    # Faded Blue-Grey
+    "BISECTOR_ACTIVE": (0, 191, 255),   # Deep Sky Blue
+    "BISECTOR_FUTURE": (70, 130, 180),  # Steel Blue
+    
+    # UI Elements
+    "SCALE_LINE": (255, 255, 255)
+}
 
 
 def load_graph(vetices_path=VERTICES_PATH, edges_path=EDGES_PATH):
@@ -82,13 +128,16 @@ def load_graph(vetices_path=VERTICES_PATH, edges_path=EDGES_PATH):
     return graph
 
 
-class NavWaypointEnv(gym.Env):
+class NavWaypointEvadeEnv(gym.Env):
     """Navpoint gymnasium creating random navpoint encounters
 
     Args:
         gym (_type_): _description_
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 20}
+    
+    
+    
     def __init__(self, render_mode=None, window_width=800,window_height=800, stencil_radius_in_km = 100, show_altitude_in_rendering=True):
         super().__init__()
         
@@ -151,27 +200,308 @@ class NavWaypointEnv(gym.Env):
         else:
             print("No nodes with 'lat' and 'lon' attributes found in the graph.")
             
+
         self.px_per_km = self.window_width/(2*stencil_radius_in_km)
         self.stencil_radius_in_km = stencil_radius_in_km
         self.center_point = {"lat":0, "lon":0}
         self.subgraph = None
         self.boundary_vertices = None
         self.intruder_paths = []
+        self.current_passed_waypoint_idx = 0
+        self.bisector_lines = []
+        
+    def _get_obs(self):
+        ac_idx = bs.traf.id2idx('KL001')
+
+        self.intruder_distance = []
+        self.cos_bearing = []
+        self.sin_bearing = []
+        self.x_difference_speed = []
+        self.y_difference_speed = []
+
+        self.waypoint_distance = []
+        self.wpt_qdr = []
+        self.cos_drift = []
+        self.sin_drift = []
+        self.drift = []
+
+        self.ac_hdg = bs.traf.hdg[ac_idx]
+
+        for i in range(NUM_INTRUDERS):
+            int_id = f'INT{i:03d}'
+            int_idx = bs.traf.id2idx(int_id)
+            
+            
+            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
+        
+            self.intruder_distance.append(np.clip((int_dis * NM2KM)/SENSOR_RANGE,0,1))
+
+            bearing = self.ac_hdg - int_qdr
+            bearing = fn.bound_angle_positive_negative_180(bearing)
+
+            self.cos_bearing.append(np.cos(np.deg2rad(bearing)))
+            self.sin_bearing.append(np.sin(np.deg2rad(bearing)))
+
+            heading_difference = bs.traf.hdg[ac_idx] - bs.traf.hdg[int_idx]
+            x_dif = - np.cos(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
+            y_dif = bs.traf.gs[ac_idx] - np.sin(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
+
+            self.x_difference_speed.append(x_dif)
+            self.y_difference_speed.append(y_dif)
+            
+        # set the waypoints in the observation frame
+        self.waypoint_distance = []
+        self.wpt_qdr = []
+        self.cos_wp_bearing = []
+        self.sin_wp_bearing = []
+        self.waypoint_mask = []
+        
+        for i in range(3):
+            if self.current_passed_waypoint_idx + i < len(self.agent_nav_path):
+                wp = self.agent_nav_path[self.current_passed_waypoint_idx + i]
+                wpt_qdr, wpt_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], wp['lat'], wp['lon'])
+                self.waypoint_distance.append(np.clip((wpt_dis * NM2KM)/SENSOR_RANGE,0,1))
+                self.wpt_qdr.append(wpt_qdr)
+                self.cos_wp_bearing.append(np.cos(np.deg2rad(wpt_qdr - self.ac_hdg)))
+                self.sin_wp_bearing.append(np.sin(np.deg2rad(wpt_qdr - self.ac_hdg)))
+                self.waypoint_mask.append(1)
+            else:
+                self.waypoint_distance.append(0)
+                self.wpt_qdr.append(0)
+                self.cos_wp_bearing.append(0)
+                self.sin_wp_bearing.append(0)
+                self.waypoint_mask.append(0)
+                
+        
+        observation = {
+                "intruder_distance": np.array(self.intruder_distance)/WAYPOINT_DISTANCE_MAX,
+                "cos_difference_pos": np.array(self.cos_bearing),
+                "sin_difference_pos": np.array(self.sin_bearing),
+                "x_difference_speed": np.array(self.x_difference_speed)/AC_SPD,
+                "y_difference_speed": np.array(self.y_difference_speed)/AC_SPD,
+                "waypoint_distance": np.array(self.waypoint_distance)/WAYPOINT_DISTANCE_MAX,
+                "waypoint_cos_pos": np.array(self.cos_wp_bearing),
+                "waypoint_sin_pos": np.array(self.sin_wp_bearing),
+                "waypoint_mask": np.array(self.waypoint_mask)
+            }
+        
+        return observation
+    
+    
+    def _get_cross_track_error(self):
+        """
+        Helper to calculate the perpendicular distance (NM) from the current airway centerline.
+        """
+        try:
+            ac_idx = bs.traf.id2idx('KL001')
+            ac_lat = bs.traf.lat[ac_idx]
+            ac_lon = bs.traf.lon[ac_idx]
+        except:
+            return 0.0
+
+        # Determine the start and end waypoints of the current leg
+        # If we are at the last waypoint, look back at the previous segment
+        idx = self.current_passed_waypoint_idx
+        if idx >= len(self.agent_nav_path) - 1:
+            idx = len(self.agent_nav_path) - 2
+        
+        # Safety check if path is too short
+        if idx < 0: 
+            return 0.0
+
+        p1 = self.agent_nav_path[idx]
+        p2 = self.agent_nav_path[idx+1]
+
+        # 1. Bearing of the path (WayPoint 1 to WayPoint 2)
+        qdr_path, _ = bs.tools.geo.kwikqdrdist(p1['lat'], p1['lon'], p2['lat'], p2['lon'])
+
+        # 2. Bearing and distance from WayPoint 1 to Aircraft
+        qdr_ac, dist_ac = bs.tools.geo.kwikqdrdist(p1['lat'], p1['lon'], ac_lat, ac_lon)
+
+        # 3. Angle difference (Track Error)
+        # We use sin() to find the perpendicular component (Cross Track Distance)
+        angle_diff = np.deg2rad(qdr_ac - qdr_path)
+        
+        # Cross track error in NM (kwikqdrdist returns NM)
+        xte = dist_ac * np.sin(angle_diff)
+        
+        return xte
+
+    def _get_corridor_penalty(self):
+        # calculate the penalty if the agent leaves the corridor sparse penalty
+        xte = self._get_cross_track_error()
+        
+        # AIRWAY_WIDTH is the total width (e.g. 8 NM), so deviation limit is half that
+        half_width = AIRWAY_WIDTH / 2.0
+        
+        if abs(xte) > half_width:
+            return CORRIDOR_LEAVE_PENALTY
+        
+        return 0.0
+    
+    def _get_drift_penalty(self):
+        # drift penalty between the current waypoint and the previous one, stay close to the centerline of the airway continuous
+        xte = self._get_cross_track_error()
+        half_width = AIRWAY_WIDTH / 2.0
+        
+        # Normalize the deviation: 0.0 at center, 1.0 at the edge of the airway
+        # We clip at 1.0 to ensure the penalty doesn't explode if they go way off track 
+        # (the corridor penalty handles the "way off track" discrete case)
+        normalized_deviation = np.clip(abs(xte) / half_width, 0, 1)
+        
+        # Apply penalty scaled by the factor
+        # If DRIFT_PENALTY is -0.5, then max penalty is -0.5 at the edge, 0 at center.
+        return normalized_deviation * DRIFT_PENALTY
+    
+    def _get_intrusion_penalty(self):
+        # intrusion penalty if the intruder is within a certain distance of the agent, sparse penalty
+        # can have either have a horizontal seperation or vertical seperation, or a combination of both
+        # if neither horizontal nor vertical seperation is respected apply the penalty.
+        
+        total_penalty = 0.0
+        
+        try:
+            own_idx = bs.traf.id2idx('KL001')
+            own_lat = bs.traf.lat[own_idx]
+            own_lon = bs.traf.lon[own_idx]
+            own_alt = bs.traf.alt[own_idx]
+        except:
+            # If agent doesn't exist, no penalty calculation needed (or max penalty elsewhere)
+            return 0.0
+
+        for i in range(NUM_INTRUDERS):
+            int_id = f'INT{i:03d}'
+            int_idx = bs.traf.id2idx(int_id)
+            
+            # Skip if intruder doesn't exist
+            if int_idx < 0:
+                continue
+                
+            int_lat = bs.traf.lat[int_idx]
+            int_lon = bs.traf.lon[int_idx]
+            int_alt = bs.traf.alt[int_idx]
+
+            # Horizontal Distance (NM)
+            _, dist_nm = bs.tools.geo.kwikqdrdist(own_lat, own_lon, int_lat, int_lon)
+            
+            # Vertical Distance (Meters)
+            dist_vert_m = abs(own_alt - int_alt)
+
+            # Check for Loss of Separation (LOS)
+            # LOS occurs if BOTH horizontal AND vertical constraints are violated simultaneously
+            horizontal_violation = dist_nm < INTRUSION_DISTANCE
+            vertical_violation = dist_vert_m < VERTICAL_SEPARATION_IN_M
+            
+            if horizontal_violation and vertical_violation:
+                total_penalty += INTRUSION_PENALTY
+                
+        return total_penalty
+    
+    
+    def _get_reward(self):
+        
+        terminated = False
+        waypoints_passed = self._check_pass_waypoint_bisector_line()
+        drif_penalty = self._get_drift_penalty()
+        corridor_penalty = self._get_corridor_penalty()
+        intrusion_penalty = self._get_intrusion_penalty()
+        reach_reward = waypoints_passed * REACH_REWARD
+        
+        
+        if self.current_passed_waypoint_idx == len(self.agent_nav_path)-1:
+            # give a big reward for reaching the final waypoint
+            reach_reward += REACH_REWARD * 5
+            terminated = True
+        
+        reward = reach_reward + drif_penalty + corridor_penalty + intrusion_penalty
+        return reward, terminated
+        
+    
+    def _calculate_all_bisector_lines(self):
+        """Pre-calculate bisector lines for all intermediate waypoints in the agent nav path."""
+        self.bisector_lines = []
+        if not self.agent_nav_path or len(self.agent_nav_path) < 3:
+            return
+
+        # Bisector lines exist for waypoints 1 through len-2 (all that have both a predecessor and successor)
+        for i in range(1, len(self.agent_nav_path) - 1):
+            wp_prev = self.agent_nav_path[i - 1]
+            wp_target = self.agent_nav_path[i]
+            wp_next = self.agent_nav_path[i + 1]
+
+            # Calculate inbound and outbound tracks
+            qdr_in, _ = bs.tools.geo.kwikqdrdist(wp_prev['lat'], wp_prev['lon'], wp_target['lat'], wp_target['lon'])
+            qdr_out, _ = bs.tools.geo.kwikqdrdist(wp_target['lat'], wp_target['lon'], wp_next['lat'], wp_next['lon'])
+
+            # Calculate average angle properly handling 360 wrap
+            sum_vectors = np.exp(1j * np.deg2rad(qdr_in)) + np.exp(1j * np.deg2rad(qdr_out))
+            avg_angle_rad = np.angle(sum_vectors)
+            bisector_qdr = np.rad2deg(avg_angle_rad)
+
+            self.bisector_lines.append({
+                "lat": wp_target['lat'],
+                "lon": wp_target['lon'],
+                "normal_qdr": bisector_qdr,
+                "waypoint_idx": i  # index in agent_nav_path
+            })
+
+    def _check_pass_waypoint_bisector_line(self):
+        ac_idx = bs.traf.id2idx('KL001')
+        ac_lat = bs.traf.lat[ac_idx]
+        ac_lon = bs.traf.lon[ac_idx]
+
+        # The bisector line index corresponds to current_passed_waypoint_idx
+        # (bisector_lines[0] is for waypoint index 1, bisector_lines[k] is for waypoint index k+1)
+        bisector_idx = self.current_passed_waypoint_idx  # maps to the next waypoint to pass
+        waypoints_passed = 0
+        passed_this_step = False
+        while True:
+            if bisector_idx < len(self.bisector_lines):
+                bl = self.bisector_lines[bisector_idx]
+
+                # Check aircraft position relative to the bisector line
+                qdr_wp_ac, dist_wp_ac = bs.tools.geo.kwikqdrdist(bl['lat'], bl['lon'], ac_lat, ac_lon)
+                angle_diff = fn.bound_angle_positive_negative_180(qdr_wp_ac - bl['normal_qdr'])
+
+                if abs(angle_diff) < 90 and (dist_wp_ac * NM2KM < WAYPOINT_DISTANCE_MAX):
+                    self.current_passed_waypoint_idx += 1
+                    passed_this_step = True
+                    #print(f"Passed waypoint {self.current_passed_waypoint_idx}")
+
+            elif self.current_passed_waypoint_idx + 1 < len(self.agent_nav_path):
+                # Final waypoint logic (no bisector available)
+                wp_target = self.agent_nav_path[self.current_passed_waypoint_idx + 1]
+                _, dist = bs.tools.geo.kwikqdrdist(ac_lat, ac_lon, wp_target['lat'], wp_target['lon'])
+
+                if (dist * NM2KM) < WAYPOINT_REACH_DISTANCE:
+                    self.current_passed_waypoint_idx += 1
+                    passed_this_step = True
+                    #print(f"Reached final waypoint {self.current_passed_waypoint_idx}")
+
+            if not passed_this_step:
+                break
+            else:
+                waypoints_passed += 1
+                passed_this_step = False
+                bisector_idx = self.current_passed_waypoint_idx
+        
+        return waypoints_passed
+        
     
     
     def step(self, action):
         
-        #self._get_action(action)
+        
 
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
             bs.sim.step()
             if self.render_mode == "human":
-                observation =  None #self._get_obs()
+                observation =  self._get_obs()
                 self._render_frame()
 
-        observation = None #self._get_obs()
-        reward, terminated = None,None #self._get_reward()
+        observation = self._get_obs()
+        reward, terminated = self._get_reward()
 
         info =  None #self._get_info()
 
@@ -183,8 +513,18 @@ class NavWaypointEnv(gym.Env):
 
         return observation, reward, terminated, False, info
     
+    def _reset_class_variables(self):
+        self.center_point = {"lat":0, "lon":0}
+        self.subgraph = None
+        self.boundary_vertices = None
+        self.agent_nav_path = None
+        self.intruder_paths = []
+        self.current_passed_waypoint_idx = 0
+        self.bisector_lines = []
+    
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        self._reset_class_variables()
         bs.traf.reset()
         number_of_vertices = 0
         
@@ -197,6 +537,7 @@ class NavWaypointEnv(gym.Env):
         
         self.boundary_vertices = self._get_boundary_vertices()
         self.agent_nav_path = self._get_agent_nav_path(self.boundary_vertices)
+        self._calculate_all_bisector_lines()
         self.intruder_paths = []
         for _ in range(NUM_INTRUDERS-1):
             intruder_path = self._intersecting_nav_path(self.agent_nav_path,self.boundary_vertices)
@@ -204,8 +545,8 @@ class NavWaypointEnv(gym.Env):
             if len(intruder_path) > MIN_ROUTE_LENGTH:
                 # randomly drop the first 1-3 waypoints on each end
                 drop_start = self.np_random.integers(0, 3)
-                drop_end = self.np_random.integers(0, 3)
-                intruder_path = intruder_path[drop_start:-drop_end]
+                
+                intruder_path = intruder_path[drop_start:]
                     
                 if intruder_path:
                     self.intruder_paths.append(intruder_path)
@@ -214,6 +555,9 @@ class NavWaypointEnv(gym.Env):
         self.intruder_paths.append(conflict_intruder_path)
         self._spawn_agent()
         self._spawn_intruders()
+        print("Reset")
+        for i in self.intruder_paths:
+            print(f"Intruder path with {len(i)} waypoints")
     
     def _spawn_agent(self):
         # calculate heading between first two waypoints
@@ -232,7 +576,9 @@ class NavWaypointEnv(gym.Env):
                 p0 = intruder_path[0]
                 p1 = intruder_path[1]
                 bearing, _ = bs.tools.geo.kwikqdrdist(p0['lat'], p0['lon'], p1['lat'], p1['lon'])
-                bs.traf.cre(acid,actype="A320",acspd=AC_SPD,acalt=FLIGHT_LEVEL_M,aclat = p0["lat"],aclon=p0["lon"],achdg=bearing)
+                
+                ac_alt = FLIGHT_LEVEL_M + self.np_random.integers(-2*VERTICAL_SEPARATION_IN_M, 2*VERTICAL_SEPARATION_IN_M)
+                bs.traf.cre(acid,actype="A320",acspd=AC_SPD,acalt=ac_alt,aclat = p0["lat"],aclon=p0["lon"],achdg=bearing)
 
                 route_obj = bs.traf.ap.route[idx] # Get the specific route instance
 
@@ -435,9 +781,9 @@ class NavWaypointEnv(gym.Env):
         # plot a scale of 10 km in the bottom left corner
         scale_length_in_km = 10
         scale_length_in_px = scale_length_in_km * self.px_per_km
-        pygame.draw.line(canvas, (0,0,0), (50, self.window_height-50), (50+scale_length_in_px, self.window_height-50), int(0.5*self.px_per_km))
+        pygame.draw.line(canvas, COLORS["SCALE_LINE"], (50, self.window_height-50), (50+scale_length_in_px, self.window_height-50), int(0.5*self.px_per_km))
         font = pygame.font.SysFont(None, 24)
-        text = font.render(f"{scale_length_in_km} km", True, (0,0,0))
+        text = font.render(f"{scale_length_in_km} km", True, COLORS["SCALE_LINE"])
         canvas.blit(text, (50, self.window_height-80))
         return canvas
     
@@ -446,7 +792,7 @@ class NavWaypointEnv(gym.Env):
         # thats where FL340 
         
         # first draw a rectangle  with solid color over the 200 pixel height to make it look better
-        pygame.draw.rect(canvas, (135,206,235), pygame.Rect(0, 0, self.window_width, 200))
+        pygame.draw.rect(canvas, COLORS["VERTICAL_BG"], pygame.Rect(0, 0, self.window_width, 200))
         
         # Total vertical range covered by the visualization in pixels
         viz_height_px = 200
@@ -464,16 +810,14 @@ class NavWaypointEnv(gym.Env):
             lines_y.append(y)
             labels.append(f"FL{(FLIGHT_LEVEL*100 + (i*stepsize_in_feet))//100}")
             
-            if i == 0:
-                color=(255,0,0)
-            else:
-                color=(0,0,0)
+            
+            color = COLORS["GRID_LINES"]
             
             pygame.draw.line(canvas, color, (0, y), (self.window_width, y), 1)
             font = pygame.font.SysFont(None, 24)
             
             
-            text = font.render(labels[-1], True, (0,0,0))
+            text = font.render(labels[-1], True, COLORS["TEXT"])
             canvas.blit(text, (10, y+5))
             
         # draw intruders in the visualization 
@@ -504,11 +848,11 @@ class NavWaypointEnv(gym.Env):
                 
                 # Height uses vertical scaling (1000 feet converted to pixels)
                 # This ensures 1000ft separation always spans exactly one 'step' in your grid
-                intrusion_height_in_px = int(1000 * px_per_foot)
+                intrusion_height_in_px = int(2000 * px_per_foot)
                 
                 
                 # Check for conflict with ownship if ownship exists
-                color = (80,80,80) # Default grey
+                color = COLORS["INTRUDER_SAFE"] # Default grey
                 pygame.draw.circle(canvas, color, (x_pos, y_pos), 5)
                 if own_idx >= 0:
                     own_lat = bs.traf.lat[own_idx]
@@ -518,7 +862,7 @@ class NavWaypointEnv(gym.Env):
                     int_alt = bs.traf.alt[int_idx]
                     
                     if int_dis < INTRUSION_DISTANCE and abs(int_alt - own_alt) < VERTICAL_SEPARATION_IN_M:
-                        color = (220,20,60) # Red if conflict
+                        color = COLORS["INTRUDER_CONFLICT"] # Red if conflict
                 
                 
                 intrusion_rect = pygame.Rect(
@@ -537,7 +881,7 @@ class NavWaypointEnv(gym.Env):
         alt_diff_ft = own_altitude - (FLIGHT_LEVEL * 100)
         x_pos,_ = self.lat_lon_to_screen_coordinates(bs.traf.lat[own_idx], bs.traf.lon[own_idx])
         own_y_pos = int(center_y - (alt_diff_ft * px_per_foot)- 500*px_per_foot)
-        pygame.draw.circle(canvas, (0,0,0), (x_pos, own_y_pos), 5)
+        pygame.draw.circle(canvas, COLORS["OWNSHIP"], (x_pos, own_y_pos), 5)
         
         
         return canvas
@@ -548,12 +892,12 @@ class NavWaypointEnv(gym.Env):
     def _render_frame(self):
         self._pre_render()
         canvas = pygame.Surface(self.window_size)
-        canvas.fill((135,206,235))
+        canvas.fill(COLORS["BACKGROUND"])
         
         canvas = self._plot_scale(canvas)
         
         
-        
+        agent_path_ids = [p['id'] for p in self.agent_nav_path]
         edge_coords = []
         for u, v in self.subgraph.edges():
             pos_u = self.subgraph.nodes[u]
@@ -561,43 +905,85 @@ class NavWaypointEnv(gym.Env):
             if 'lat' in pos_u and 'lon' in pos_u and 'lat' in pos_v and 'lon' in pos_v:
                 x1, y1 = self.lat_lon_to_screen_coordinates(pos_u['lat'], pos_u['lon'])
                 x2, y2 = self.lat_lon_to_screen_coordinates(pos_v['lat'], pos_v['lon'])
-                edge_coords.append(((int(x1), int(y1)), (int(x2), int(y2))))
+                
+                # both nodes are in the agent_path add different color
+                color = COLORS["AIRWAY"]
+                
+                if u in agent_path_ids and v in agent_path_ids:
+                    color = COLORS["AIRWAY_ACTIVE"]         
+                edge_coords.append(((int(x1), int(y1)), (int(x2), int(y2)),color))
         
         # First pass: draw airways
-        for start, end in edge_coords:
-            pygame.draw.line(canvas, (0,255,0), start, end, int(AIRWAY_WIDTH*NM2KM*self.px_per_km))
+        for start, end,_ in edge_coords:
+            pygame.draw.line(canvas, COLORS["AIRWAY_CORRIDOR"], start, end, int(AIRWAY_WIDTH*NM2KM*self.px_per_km))
             #also draw a cirlce at the start and end of each edge to make it look better
-            pygame.draw.circle(canvas, (0,255,0), start, int(AIRWAY_WIDTH/2*NM2KM*self.px_per_km))
-            pygame.draw.circle(canvas, (0,255,0), end, int(AIRWAY_WIDTH/2*NM2KM*self.px_per_km))
-            
+            pygame.draw.circle(canvas, COLORS["AIRWAY_CORRIDOR"], start, int(AIRWAY_WIDTH/2*NM2KM*self.px_per_km))
+            pygame.draw.circle(canvas, COLORS["AIRWAY_CORRIDOR"], end, int(AIRWAY_WIDTH/2*NM2KM*self.px_per_km))
+
+        # Draw all bisector lines
+        if DEBUG:
+            for bi, bl in enumerate(self.bisector_lines):
+                wp_lat = bl["lat"]
+                wp_lon = bl["lon"]
+                normal_qdr = bl["normal_qdr"]
+                
+                cx, cy = self.lat_lon_to_screen_coordinates(wp_lat, wp_lon)
+                
+                # The line is perpendicular to the normal_qdr
+                line_angle_1 = np.deg2rad(normal_qdr + 90)
+                line_angle_2 = np.deg2rad(normal_qdr - 90)
+                
+                line_len = 50 # pixels
+                
+                p1_x = cx + np.sin(line_angle_1) * line_len
+                p1_y = cy - np.cos(line_angle_1) * line_len # Y is inverted in screen coords
+                
+                p2_x = cx + np.sin(line_angle_2) * line_len
+                p2_y = cy - np.cos(line_angle_2) * line_len
+                
+                # Highlight the next bisector to pass vs already-passed ones
+                if bi < self.current_passed_waypoint_idx:
+                    color = COLORS["BISECTOR_PASSED"]  # Dim purple for already-passed
+                elif bi == self.current_passed_waypoint_idx:
+                    color = COLORS["BISECTOR_ACTIVE"]   # Bright magenta for next to pass
+                else:
+                    color = COLORS["BISECTOR_FUTURE"] # Light purple for upcoming
+                
+                pygame.draw.line(canvas, color, (p1_x, p1_y), (p2_x, p2_y), 3)
+                
+                # Draw the normal vector to show "forward" direction
+                n_x = cx + np.sin(np.deg2rad(normal_qdr)) * 30
+                n_y = cy - np.cos(np.deg2rad(normal_qdr)) * 30
+                pygame.draw.line(canvas, color, (cx, cy), (n_x, n_y), 1)
+
         # Second pass: draw center lines
-        for start, end in edge_coords:
-            pygame.draw.line(canvas, (0,0,0), start, end, 1)
+        for start, end,color in edge_coords:
+            pygame.draw.line(canvas,color, start, end, 1)
 
         for node in self.subgraph.nodes:
             data = self.subgraph.nodes[node]
             if 'lat' in data and 'lon' in data:
                 x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
                 
-                color = (255, 0, 0)
+                color = COLORS["WAYPOINT"]
                 # Check if node id is in the agent path (which is now a list of dicts)
-                if self.agent_nav_path and node in [p['id'] for p in self.agent_nav_path]:
-                    color = (255, 255, 0)
+                if self.agent_nav_path[self.current_passed_waypoint_idx+1]["id"] == node:
+                    color = COLORS["WAYPOINT_ACTIVE"]
                 
                 pygame.draw.circle(canvas, color, (int(x), int(y)), 3) 
         
-        boundary_vertices = self._get_boundary_vertices()
-        for node in boundary_vertices:
-            data = self.subgraph.nodes[node]
-            if 'lat' in data and 'lon' in data:
-                x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
+        # boundary_vertices = self._get_boundary_vertices()
+        # for node in boundary_vertices:
+        #     data = self.subgraph.nodes[node]
+        #     if 'lat' in data and 'lon' in data:
+        #         x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
                 
-                color = (0, 0, 255)
-                # Check if node id is in the agent path
-                if self.agent_nav_path and node in [p['id'] for p in self.agent_nav_path]:
-                    color = (255, 255, 0)
+        #         color = (0, 0, 255)
+        #         # Check if node id is in the agent path
+        #         if self.agent_nav_path and node in [p['id'] for p in self.agent_nav_path]:
+        #             color = (255, 255, 0)
                 
-                pygame.draw.circle(canvas, color, (int(x), int(y)), 3)
+        #         pygame.draw.circle(canvas, color, (int(x), int(y)), 3)
                 
                 
         
@@ -626,14 +1012,18 @@ class NavWaypointEnv(gym.Env):
                 
                 x_pos, y_pos = self.lat_lon_to_screen_coordinates(int_lat, int_lon)
                 
+                own_alt = bs.traf.alt[own_idx]
+                int_alt = bs.traf.alt[int_idx] 
+                dif_alt = abs(own_alt - int_alt) 
+                
                 # Check for conflict with ownship if ownship exists
-                color = (80,80,80) # Default grey
+                color = COLORS["INTRUDER_SAFE"] # Default grey
                 if own_idx >= 0:
                     own_lat = bs.traf.lat[own_idx]
                     own_lon = bs.traf.lon[own_idx]
                     _, int_dis = bs.tools.geo.kwikqdrdist(own_lat, own_lon, int_lat, int_lon)
-                    if int_dis < INTRUSION_DISTANCE:
-                        color = (220,20,60) # Red if conflict
+                    if int_dis < INTRUSION_DISTANCE and dif_alt < VERTICAL_SEPARATION_IN_M:
+                        color = COLORS["INTRUDER_CONFLICT"] # Red if conflict
 
                 # Draw intruder position
                 pygame.draw.circle(canvas, color, (int(x_pos), int(y_pos)), 5)
@@ -675,7 +1065,7 @@ class NavWaypointEnv(gym.Env):
                 
                 # Intrusion Circle
                 radius_px = int(INTRUSION_DISTANCE * NM2KM * self.px_per_km)
-                pygame.draw.circle(canvas, (0, 0, 0), (x_pos, y_pos), radius_px, 1)
+                pygame.draw.circle(canvas, COLORS["OWNSHIP"], (x_pos, y_pos), radius_px, 1)
 
                 # Draw heading vector for the agent
                 heading_len_km = 240 * (ac_spd ) / 1000  # Scale by speed for better visualization
@@ -687,9 +1077,9 @@ class NavWaypointEnv(gym.Env):
                 end_y = y_pos - np.cos(np.deg2rad(own_hdg)) * heading_len_px
                 
                 # Draw intruder position
-                pygame.draw.circle(canvas, (0,0,0), (int(x_pos), int(y_pos)), 5)
+                pygame.draw.circle(canvas, COLORS["OWNSHIP"], (int(x_pos), int(y_pos)), 5)
 
-                pygame.draw.line(canvas, (0, 0, 0), (int(x_pos), int(y_pos)), (int(end_x), int(end_y)), 2)
+                pygame.draw.line(canvas, COLORS["OWNSHIP"], (int(x_pos), int(y_pos)), (int(end_x), int(end_y)), 2)
         except ValueError:
             # Agent not found
             print(ValueError)
@@ -704,9 +1094,9 @@ class NavWaypointEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100)
+    env = NavWaypointEvadeEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100)
     env.metadata["render_fps"] = 20
-    env.reset(seed=47)
+    env.reset(seed=48)
     env.reset()
     # # We use env.np_random for consistency with the seeded environment
     # nodes_list = list(env.graph.nodes)
@@ -730,7 +1120,18 @@ if __name__ == "__main__":
     i=0
     #bs.stack.stack(f"HDG KL001 {action}")
     while True:
-        env.step(0)
+        _, reward, terminated, _, _ = env.step(0)
+        #print(f"Reward: {reward}")
+        if terminated:
+            print("Episode terminated, resetting environment.")
+            env.reset()
         i=i+1
-        print(i)
-        print(bs.traf.hdg[idx])
+        # input the action using arrow keys increase or decrease heading by 10 degrees
+        for event in pygame.event.get():
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    action = bs.traf.hdg[idx] - 45
+                    bs.stack.stack(f"HDG KL001 {action}")
+                elif event.key == pygame.K_RIGHT:
+                    action = bs.traf.hdg[idx] + 45
+                    bs.stack.stack(f"HDG KL001 {action}")
