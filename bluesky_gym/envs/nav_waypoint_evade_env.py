@@ -38,10 +38,8 @@ CRASH_DISTANCE = 1 # NM for horizontal seperation
 
 MIN_ROUTE_LENGTH = 9 #
 
-WAYPOINT_DISTANCE_MIN = 100
-WAYPOINT_DISTANCE_MAX = 150
-
-D_HEADING = 45
+D_HEADING = 45 #degree
+D_ALTITUDE = 100 #m
 
 AC_SPD = 150 #m/s
 
@@ -61,6 +59,8 @@ VETICAL_SEPARATION_IN_FT = 1000
 VERTICAL_SEPARATION_IN_M = VETICAL_SEPARATION_IN_FT * FT_TO_M
 
 WAYPOINT_REACH_DISTANCE = 5 # NM
+
+INTRUDER_ALT_SPANRANGE_IN_1000FT = 2 # this means the intruder can be between FL320 and FL360 if the agent is at FL340, this allows for more realistic encounters where the intruder is not always at the same altitude as the agent.
 
 # NAVPOINTS
 EDGES_PATH = "data/edges.csv"
@@ -164,15 +164,21 @@ class NavWaypointEvadeEnv(gym.Env):
                 "intruder_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "cos_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "sin_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "z_difference_pos": spaces.Box(-np.inf, np.inf, shape=(NUM_INTRUDERS,), dtype=np.float64),
                 "x_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+
                 "waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64), # always has previous current and next waypoint this allows it to learn the drift in airway.
                 "waypoint_cos_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
                 "waypoint_sin_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
                 "waypoint_mask": spaces.Box(0, 1, shape = (3,), dtype=np.float64), # this indicates if the waypoints exists. only valid for the last obs
-                
+                "own_z_deviation": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64) #this is the deviation of the desired altitude
             }
         )
+        
+        # first value is heading change, second value is altitude change
+        
+        self.action_space = spaces.Box(-1, 1, shape=(2,), dtype=np.float64)
         
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
@@ -226,11 +232,15 @@ class NavWaypointEvadeEnv(gym.Env):
         self.drift = []
 
         self.ac_hdg = bs.traf.hdg[ac_idx]
+        self.ac_alt = bs.traf.alt[ac_idx]
+        self.z_deviation = (self.ac_alt - FLIGHT_LEVEL_M)/2*VERTICAL_SEPARATION_IN_M #z-deviation normalized by vertical separaiton
 
+        self.relative_intruder_z_deviation = []
         for i in range(NUM_INTRUDERS):
             int_id = f'INT{i:03d}'
             int_idx = bs.traf.id2idx(int_id)
-            
+            z_dev = self.ac_alt - bs.traf.alt[int_idx]
+            self.z_deviation.append(z_dev)
             
             int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
         
@@ -256,6 +266,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.sin_wp_bearing = []
         self.waypoint_mask = []
         
+        
         for i in range(3):
             if self.current_passed_waypoint_idx + i < len(self.agent_nav_path):
                 wp = self.agent_nav_path[self.current_passed_waypoint_idx + i]
@@ -274,15 +285,17 @@ class NavWaypointEvadeEnv(gym.Env):
                 
         
         observation = {
-                "intruder_distance": np.array(self.intruder_distance)/WAYPOINT_DISTANCE_MAX,
+                "intruder_distance": np.clip(np.array(self.intruder_distance)/SENSOR_RANGE,0,1),
                 "cos_difference_pos": np.array(self.cos_bearing),
                 "sin_difference_pos": np.array(self.sin_bearing),
                 "x_difference_speed": np.array(self.x_difference_speed)/AC_SPD,
                 "y_difference_speed": np.array(self.y_difference_speed)/AC_SPD,
-                "waypoint_distance": np.array(self.waypoint_distance)/WAYPOINT_DISTANCE_MAX,
+                "z_difference_pos": np.clip(np.array(self.z_deviation)/VERTICAL_SEPARATION_IN_M,-1,1),
+                "waypoint_distance": np.clip(np.array(self.waypoint_distance)/SENSOR_RANGE,0,1),
                 "waypoint_cos_pos": np.array(self.cos_wp_bearing),
                 "waypoint_sin_pos": np.array(self.sin_wp_bearing),
-                "waypoint_mask": np.array(self.waypoint_mask)
+                "waypoint_mask": np.array(self.waypoint_mask),
+                "own_z_deviation": np.array([self.z_deviation])
             }
         
         return observation
@@ -487,7 +500,11 @@ class NavWaypointEvadeEnv(gym.Env):
         
         return waypoints_passed
         
-    
+    def _get_action(self, action):
+        action = self.ac_hdg + action * D_HEADING
+
+        bs.stack.stack(f"HDG KL001 {action[0]}")
+        altitude_change = action[1] * D_ALTITUDE
     
     def step(self, action):
         
@@ -577,7 +594,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 p1 = intruder_path[1]
                 bearing, _ = bs.tools.geo.kwikqdrdist(p0['lat'], p0['lon'], p1['lat'], p1['lon'])
                 
-                ac_alt = FLIGHT_LEVEL_M + self.np_random.integers(-2*VERTICAL_SEPARATION_IN_M, 2*VERTICAL_SEPARATION_IN_M)
+                ac_alt = FLIGHT_LEVEL_M + self.np_random.integers(-INTRUDER_ALT_SPANRANGE_IN_1000FT*VERTICAL_SEPARATION_IN_M, INTRUDER_ALT_SPANRANGE_IN_1000FT*VERTICAL_SEPARATION_IN_M)
                 bs.traf.cre(acid,actype="A320",acspd=AC_SPD,acalt=ac_alt,aclat = p0["lat"],aclon=p0["lon"],achdg=bearing)
 
                 route_obj = bs.traf.ap.route[idx] # Get the specific route instance

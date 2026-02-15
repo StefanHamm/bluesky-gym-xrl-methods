@@ -36,20 +36,13 @@ keywords_mapping = {
 }
 
 
-all_envs = ["NavWaypointEvadeEnv-v0"] # Add more environments as needed
-algorithms = [SAC, PPO, TD3, DDPG, A2C]
+ENV_NAME = "NavWaypointEvadeEnv-v0"
+ALGORITHMS = [SAC, PPO, TD3, DDPG, A2C]
 
 def make_env(logger_path=None):
-    """
-    Utility function for multiprocessed env.
-    """
     if args.workdir:
         os.makedirs(args.workdir, exist_ok=True)
-    # ...existing code...
-    if env_name == "SectorCREnv-v0":
-        env = gym.make(env_name, render_mode=None)
-    else:
-        env = gym.make(env_name, render_mode=None, workdir=args.workdir)
+    env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir)
     return env
 
 
@@ -80,58 +73,36 @@ if __name__ == "__main__":
     set_global_seed(args.global_seed)
     # 2. Select specific config
     try:
-        env_name = all_envs[args.env_idx]
-        algorithm = algorithms[args.algo_idx]
+        algorithm = ALGORITHMS[args.algo_idx]
     except IndexError:
-        print("Index out of bounds")
+        print("Algorithm index out of bounds")
         sys.exit(1)
 
-    print(f"--- Starting Job: {algorithm.__name__} on {env_name} ---")
+    print(f"--- Starting Job: {algorithm.__name__} on {ENV_NAME} ---")
     print(f"{args.total_timesteps}")
 
-    # create a folder called vecEnvLogs and store the logs there if it is false store it in singleEnvLogs
     if args.make_vec_env:
         suffix = "vecEnvLogs"
     else:
         suffix = "singleEnv"
 
-    # 3. Run Training (No loops here anymore!)
-    log_dir = f'./{args.jobdir}/{env_name}/'
-    file_name = f'{env_name}_{str(algorithm.__name__)}_{suffix}_baseline'
+    log_dir = f'./{args.jobdir}/{ENV_NAME}/'
+    file_name = f'{ENV_NAME}_{str(algorithm.__name__)}_{suffix}_baseline'
     log_file_path = os.path.join(log_dir, file_name)
-    
-    #csv_logger_callback = logger.CSVLoggerCallback(log_dir, file_name)
-    
+
     if TRAIN:
         if args.make_vec_env:
             print("Using vectorized environment")
             env = make_vec_env(make_env,seed=args.env_seed, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
-            env = VecMonitor(env, filename=log_file_path, info_keywords=keywords_mapping.get(env_name, []))
+            env = VecMonitor(env, filename=log_file_path, info_keywords=keywords_mapping.get(ENV_NAME, []))
         else:
             print("Using single environment")
             env = make_env(logger_path=log_file_path)
-            env = Monitor(env, log_file_path, info_keywords=keywords_mapping.get(env_name, []))
+            env = Monitor(env, log_file_path, info_keywords=keywords_mapping.get(ENV_NAME, []))
             env.reset(seed=args.env_seed)
-        
-    
+
         policy_type = "MultiInputPolicy"
-        
         model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed,device="cuda" if torch.cuda.is_available() else "cpu")
-        
-        # # Calculate frequency roughly equivalent to 100k timesteps
-        # n_envs = args.num_cpu if args.make_vec_env else 1
-        # save_freq = max(100000 // n_envs, 1)
-        
-        # # Save checkpoints
-        # checkpoint_dir = f"models/{args.jobid}/{env_name}/checkpoints"
-        # checkpoint_callback = CheckpointCallback(
-        #     save_freq=save_freq,
-        #     save_path=checkpoint_dir,
-        #     name_prefix=f"{env_name}_{str(algorithm.__name__)}_{suffix}_baseline",
-        #     verbose=1
-        # )
-        # if want to of checkpoints add callback= checkpoint_callback
         model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=True)
-        model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
-        
+        model.save(f"models/{args.jobid}/{ENV_NAME}/{ENV_NAME}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         env.close()
