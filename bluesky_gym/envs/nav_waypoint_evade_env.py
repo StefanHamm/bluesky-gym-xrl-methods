@@ -138,7 +138,7 @@ class NavWaypointEvadeEnv(gym.Env):
     
     
     
-    def __init__(self, render_mode=None, window_width=800,window_height=800, stencil_radius_in_km = 100, show_altitude_in_rendering=True):
+    def __init__(self, render_mode=None, window_width=800,window_height=800, stencil_radius_in_km = 100, show_altitude_in_rendering=True,workdir=None):
         super().__init__()
         
         # load the graph
@@ -182,29 +182,29 @@ class NavWaypointEvadeEnv(gym.Env):
         
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True,workdir=workdir)
 
         # initialize dummy screen and set correct sim speed
         bs.scr = ScreenDummy()
         bs.stack.stack('DT 1;FF')
-
+        if DEBUG:
         # Only consider nodes with 'pos' attribute for min/max calculations
-        latlon_nodes = [(data['lat'], data['lon']) for _, data in self.graph.nodes(data=True) if 'lat' in data and 'lon' in data]
-        if latlon_nodes:
-            lats = [lat for lat, _ in latlon_nodes]
-            lons = [lon for _, lon in latlon_nodes]
-            self.max_lat = max(lats)
-            self.min_lat = min(lats)
-            self.max_lon = max(lons)
-            self.min_lon = min(lons)
-            self.median_lat = np.median(lats)
-            self.median_lon = np.median(lons)
-            print(f"Graph loaded with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges")
-            print(f"Graph lat range: {self.min_lat} - {self.max_lat}")
-            print(f"Graph lon range: {self.min_lon} - {self.max_lon}")
-            print(f"Graph median lat: {self.median_lat} median lon: {self.median_lon}")
-        else:
-            print("No nodes with 'lat' and 'lon' attributes found in the graph.")
+            latlon_nodes = [(data['lat'], data['lon']) for _, data in self.graph.nodes(data=True) if 'lat' in data and 'lon' in data]
+            if latlon_nodes:
+                lats = [lat for lat, _ in latlon_nodes]
+                lons = [lon for _, lon in latlon_nodes]
+                self.max_lat = max(lats)
+                self.min_lat = min(lats)
+                self.max_lon = max(lons)
+                self.min_lon = min(lons)
+                self.median_lat = np.median(lats)
+                self.median_lon = np.median(lons)
+                print(f"Graph loaded with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges")
+                print(f"Graph lat range: {self.min_lat} - {self.max_lat}")
+                print(f"Graph lon range: {self.min_lon} - {self.max_lon}")
+                print(f"Graph median lat: {self.median_lat} median lon: {self.median_lon}")
+            else:
+                print("No nodes with 'lat' and 'lon' attributes found in the graph.")
             
 
         self.px_per_km = self.window_width/(2*stencil_radius_in_km)
@@ -233,8 +233,8 @@ class NavWaypointEvadeEnv(gym.Env):
 
         self.ac_hdg = bs.traf.hdg[ac_idx]
         self.ac_alt = bs.traf.alt[ac_idx]
-        self.z_deviation = (self.ac_alt - FLIGHT_LEVEL_M)/2*VERTICAL_SEPARATION_IN_M #z-deviation normalized by vertical separaiton
-
+        self.own_z_deviation = (self.ac_alt - FLIGHT_LEVEL_M)/2*VERTICAL_SEPARATION_IN_M #z-deviation normalized by vertical separaiton
+        self.z_deviation = []
         self.relative_intruder_z_deviation = []
         for i in range(NUM_INTRUDERS):
             int_id = f'INT{i:03d}'
@@ -295,7 +295,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 "waypoint_cos_pos": np.array(self.cos_wp_bearing),
                 "waypoint_sin_pos": np.array(self.sin_wp_bearing),
                 "waypoint_mask": np.array(self.waypoint_mask),
-                "own_z_deviation": np.array([self.z_deviation])
+                "own_z_deviation": np.array([self.own_z_deviation])
             }
         
         return observation
@@ -476,7 +476,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 qdr_wp_ac, dist_wp_ac = bs.tools.geo.kwikqdrdist(bl['lat'], bl['lon'], ac_lat, ac_lon)
                 angle_diff = fn.bound_angle_positive_negative_180(qdr_wp_ac - bl['normal_qdr'])
 
-                if abs(angle_diff) < 90 and (dist_wp_ac * NM2KM < WAYPOINT_DISTANCE_MAX):
+                if abs(angle_diff) < 90 and (dist_wp_ac * NM2KM < 2*AIRWAY_WIDTH):
                     self.current_passed_waypoint_idx += 1
                     passed_this_step = True
                     #print(f"Passed waypoint {self.current_passed_waypoint_idx}")
@@ -501,14 +501,15 @@ class NavWaypointEvadeEnv(gym.Env):
         return waypoints_passed
         
     def _get_action(self, action):
-        action = self.ac_hdg + action * D_HEADING
+        action = self.ac_hdg + action[0] * D_HEADING
 
         bs.stack.stack(f"HDG KL001 {action[0]}")
-        altitude_change = action[1] * D_ALTITUDE
+        altitude_change = action[1] * D_ALTITUDE +  bs.traf.alt[bs.traf.id2idx('KL001')]
+        bs.stack.stack(f"ALT KL001 {altitude_change}")
     
     def step(self, action):
         
-        
+        self._get_action(action)
 
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
@@ -520,7 +521,7 @@ class NavWaypointEvadeEnv(gym.Env):
         observation = self._get_obs()
         reward, terminated = self._get_reward()
 
-        info =  None #self._get_info()
+        info =  {} #self._get_info()
 
         # bluesky reset?? bs.sim.reset()
         if terminated:
@@ -572,9 +573,11 @@ class NavWaypointEvadeEnv(gym.Env):
         self.intruder_paths.append(conflict_intruder_path)
         self._spawn_agent()
         self._spawn_intruders()
-        print("Reset")
-        for i in self.intruder_paths:
-            print(f"Intruder path with {len(i)} waypoints")
+        if DEBUG:
+            for i in self.intruder_paths:
+                print(f"Intruder path with {len(i)} waypoints")
+        
+        return self._get_obs(), {} #self._get_info()
     
     def _spawn_agent(self):
         # calculate heading between first two waypoints
