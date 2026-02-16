@@ -6,7 +6,7 @@ from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import math
 from scipy.spatial import ConvexHull
-from shapely.geometry import Point
+#from shapely.geometry import Point
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -18,19 +18,20 @@ DISTANCE_MARGIN = 5 # km
 
 AIRWAY_WIDTH = 8 # NM
 
-DEBUG = False
+DEBUG = True
 
 
 # REWARDS
 REACH_REWARD = 5
 DRIFT_PENALTY = -0.5
-INTRUSION_PENALTY = -1
+ALTITUDE_PENALTY = -1.5 # altitude higher penalty than drift since more fuel cost
+INTRUSION_PENALTY = -4
 CORRIDOR_LEAVE_PENALTY = -1
 CRASH_PENALTY = -100
 ALTITUDE_PENALTY = -0.5
 
 
-
+# INTRUDER AND WAPOINT CONFIG
 NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
 INTRUSION_DISTANCE = 5 # NM
@@ -38,8 +39,6 @@ CRASH_DISTANCE = 1 # NM for horizontal seperation
 
 MIN_ROUTE_LENGTH = 9 #
 
-D_HEADING = 45 #degree
-D_ALTITUDE = 100 #m
 
 AC_SPD = 150 #m/s
 
@@ -65,6 +64,18 @@ INTRUDER_ALT_SPANRANGE_IN_1000FT = 2 # this means the intruder can be between FL
 # NAVPOINTS
 EDGES_PATH = "data/edges.csv"
 VERTICES_PATH = "data/vertices.csv"
+
+#ACTION Space
+#for heading change its discrete with upto ALTITUDE_STEPS in each direction
+#the step height is set as D_ALTITUDE
+ALTITUDE_STEPS = 4
+D_ALTITUDE = VERTICAL_SEPARATION_IN_M/2 # the alitude 5 FL e.g. FL430 FL435 etc.
+CLIMB_RATE = 5 # m/s
+DECENT_RATE = -5 # m/s
+ALT_REACH_DISTANCE = 50 #m how close it needs to be to accept new commands
+
+
+D_HEADING = 45 #degree action of 1 changes heading by 45 degree
 
 
 # --- ATC REALISM COLOR PALETTE ---
@@ -138,7 +149,7 @@ class NavWaypointEvadeEnv(gym.Env):
     
     
     
-    def __init__(self, render_mode=None, window_width=800,window_height=800, stencil_radius_in_km = 100, show_altitude_in_rendering=True,workdir=None):
+    def __init__(self, render_mode=None, window_width=500,window_height=500, stencil_radius_in_km = 100, show_altitude_in_rendering=True,workdir=None,plot_all_points = True):
         super().__init__()
         
         # load the graph
@@ -178,8 +189,11 @@ class NavWaypointEvadeEnv(gym.Env):
         
         # first value is heading change, second value is altitude change
         
-        self.action_space = spaces.Box(-1, 1, shape=(2,), dtype=np.float64)
-        
+        # Example: heading continuous, altitude discrete (5 options)
+        self.action_space = spaces.Tuple((
+            spaces.Box(-1, 1, shape=(1,), dtype=np.float32),   # heading
+            spaces.Discrete(2*ALTITUDE_STEPS+1)                                 # altitude: 0,1,2,3,4
+        ))
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
             bs.init(mode='sim', detached=True,workdir=workdir)
@@ -410,14 +424,23 @@ class NavWaypointEvadeEnv(gym.Env):
                 
         return total_penalty
     
+    def _altitude_penalty(self):
+        # penalize the agent for deviating fromt the target penalty,
+        # continuous from the discrete FL steps normalized to 0 and 1
+        ac_alt = bs.traf.alt[bs.traf.id2idx('KL001')]
+        alt_diff = abs(ac_alt - FLIGHT_LEVEL_M)
+        max_diff = ALTITUDE_STEPS * D_ALTITUDE
+        normalized_diff = np.clip(alt_diff / max_diff, 0, 1)
+        return normalized_diff * ALTITUDE_PENALTY
     
     def _get_reward(self):
         
         terminated = False
         waypoints_passed = self._check_pass_waypoint_bisector_line()
-        drif_penalty = self._get_drift_penalty()
+        drift_penalty = self._get_drift_penalty()
         corridor_penalty = self._get_corridor_penalty()
         intrusion_penalty = self._get_intrusion_penalty()
+        altitude_penalty = self._altitude_penalty()
         reach_reward = waypoints_passed * REACH_REWARD
         
         
@@ -426,7 +449,7 @@ class NavWaypointEvadeEnv(gym.Env):
             reach_reward += REACH_REWARD * 5
             terminated = True
         
-        reward = reach_reward + drif_penalty + corridor_penalty + intrusion_penalty
+        reward = reach_reward + drift_penalty + corridor_penalty + intrusion_penalty + altitude_penalty
         return reward, terminated
         
     
@@ -501,11 +524,27 @@ class NavWaypointEvadeEnv(gym.Env):
         return waypoints_passed
         
     def _get_action(self, action):
-        action = self.ac_hdg + action[0] * D_HEADING
+        action_hdg = self.ac_hdg + action[0] * D_HEADING
 
-        bs.stack.stack(f"HDG KL001 {action[0]}")
-        altitude_change = action[1] * D_ALTITUDE +  bs.traf.alt[bs.traf.id2idx('KL001')]
-        bs.stack.stack(f"ALT KL001 {altitude_change}")
+        bs.stack.stack(f"HDG KL001 {action_hdg}")
+        
+        
+        shifted_action = action[1] - ALTITUDE_STEPS # shift from 0,.., n to -1/2n,..., 0,..., 1/2n
+        target_altitude = FLIGHT_LEVEL_M + shifted_action * D_ALTITUDE
+        
+        ac_idx = bs.traf.id2idx('KL001')
+        
+        current_selalt = bs.traf.selalt[ac_idx]
+        current_altitude = bs.traf.alt[ac_idx]
+
+        # Only allow new SELALT if close to previous SELALT (within half a step)
+        if abs(current_altitude - current_selalt) < ALT_REACH_DISTANCE:
+            bs.traf.selalt[ac_idx] = target_altitude
+            if target_altitude > current_altitude:
+                bs.traf.selvs[ac_idx] = CLIMB_RATE
+            elif current_altitude > target_altitude:
+                bs.traf.selvs[ac_idx] = DECENT_RATE
+    
     
     def step(self, action):
         
@@ -576,7 +615,7 @@ class NavWaypointEvadeEnv(gym.Env):
         if DEBUG:
             for i in self.intruder_paths:
                 print(f"Intruder path with {len(i)} waypoints")
-        
+        self._render_frame()
         return self._get_obs(), {} #self._get_info()
     
     def _spawn_agent(self):
@@ -788,7 +827,8 @@ class NavWaypointEvadeEnv(gym.Env):
         
         x_pos = (self.window_width/2)+(np.sin(np.deg2rad(qdr))*(dis * NM2KM)*self.px_per_km)
         y_pos = (self.window_height/2)-(np.cos(np.deg2rad(qdr))*(dis * NM2KM)*self.px_per_km)
-        
+        if self.show_altitude_in_rendering:
+            y_pos+=100
         return x_pos,y_pos
         
             
@@ -1114,7 +1154,7 @@ class NavWaypointEvadeEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEvadeEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100)
+    env = NavWaypointEvadeEnv(render_mode="human",window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True)
     env.metadata["render_fps"] = 20
     env.reset(seed=48)
     env.reset()
@@ -1139,19 +1179,29 @@ if __name__ == "__main__":
     action = bs.traf.hdg[idx] + 1 * 90
     i=0
     #bs.stack.stack(f"HDG KL001 {action}")
+    heading_action = 0  # -1 for left, 0 for straight, 1 for right
+    altitude_action = 4
     while True:
-        _, reward, terminated, _, _ = env.step(0)
         #print(f"Reward: {reward}")
-        if terminated:
-            print("Episode terminated, resetting environment.")
-            env.reset()
+       
         i=i+1
         # input the action using arrow keys increase or decrease heading by 10 degrees
+        
         for event in pygame.event.get():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_LEFT:
-                    action = bs.traf.hdg[idx] - 45
-                    bs.stack.stack(f"HDG KL001 {action}")
+                    heading_action = -1
                 elif event.key == pygame.K_RIGHT:
-                    action = bs.traf.hdg[idx] + 45
-                    bs.stack.stack(f"HDG KL001 {action}")
+                    heading_action = 1
+                elif event.key == pygame.K_UP:
+                    altitude_action = min(altitude_action + 1, 2*ALTITUDE_STEPS)
+                elif event.key == pygame.K_DOWN:
+                    altitude_action = max(altitude_action - 1, 0)
+            elif event.type == pygame.KEYUP:
+                if event.key in [pygame.K_LEFT, pygame.K_RIGHT]:
+                    heading_action = 0
+                    
+        _, reward, terminated, _, _ = env.step([heading_action, altitude_action])
+        if terminated:
+            print("Episode terminated, resetting environment.")
+            env.reset()
