@@ -1,12 +1,11 @@
 import numpy as np
 import pygame
-import matplotlib.pyplot as plt
 import bluesky as bs
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
+from bluesky_gym.envs.common.functions import load_graph
+from bluesky_gym.envs.common.obstacle_rasterizer import ObstacleRasterizer
 import math
-import matplotlib.path
-from scipy import ndimage
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -111,34 +110,6 @@ COLORS = {
 }
 
 
-def load_graph(vetices_path=VERTICES_PATH, edges_path=EDGES_PATH):
-    graph = nx.Graph()
-    with open(vetices_path, 'r') as f:
-        f.readline() # skip first line
-        for line in f:
-            parts = line.strip().split(',')
-            node_id = str(parts[0])
-            lat = float(parts[1])
-            lon = float(parts[2])
-            alitude = float(parts[3])
-            is_ariport = int(parts[4])
-            if not is_ariport:
-                graph.add_node(node_id, lat=lat, lon=lon)
-    # then load the edges
-    with open(edges_path, 'r') as f:
-        #skip first line
-        f.readline()
-        for line in f:
-            parts = line.strip().split(',')
-            node1 = str(parts[0])
-            node2 = str(parts[1])
-            distance = float(parts[2])
-            # Only add edge if both nodes exist
-            if node1 in graph.nodes and node2 in graph.nodes:
-                graph.add_edge(node1, node2, weight=distance)
-    return graph
-
-
 class NavWaypointEvadeEnv(gym.Env):
     """Navpoint gymnasium creating random navpoint encounters
 
@@ -231,190 +202,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.current_passed_waypoint_idx = 0
         self.bisector_lines = []
         self.used_node_ids = set()
-        
-    # ------------------------------------------------------------------ #
-    #  Raster-based obstacle generation (works for any graph topology)      #
-    # ------------------------------------------------------------------ #
-
-    # Resolution of the offscreen rasterisation buffer.
-    # Higher = more accurate contours but slower.  1000 is a good trade-off.
-    _RASTER_RES = 1000
-
-    # Minimum area of a void region in *pixels²* to keep (filters noise).
-    _MIN_VOID_PX_AREA = 15
-
-    # Maximum number of vertices kept in each simplified contour polygon.
-    _MAX_CONTOUR_VERTS = 20
-
-    # --- pixel ↔ lat/lon helpers ------------------------------------------
-
-    def _latlon_to_px(self, lat, lon, buf_w, buf_h):
-        """Project lat/lon → pixel (x, y) on the raster buffer."""
-        qdr, dis = bs.tools.geo.kwikqdrdist(
-            self.center_point['lat'], self.center_point['lon'], lat, lon)
-        # dis is in NM; convert to km then to fraction of stencil radius
-        frac = (dis * NM2KM) / self.stencil_radius_in_km
-        px_x = buf_w / 2 + np.sin(np.deg2rad(qdr)) * frac * buf_w / 2
-        px_y = buf_h / 2 - np.cos(np.deg2rad(qdr)) * frac * buf_h / 2
-        return int(round(px_x)), int(round(px_y))
-
-    def _px_to_latlon(self, px_x, px_y, buf_w, buf_h):
-        """Reverse-project pixel (x, y) → (lat, lon)."""
-        # pixel offset from centre
-        dx = (px_x - buf_w / 2) / (buf_w / 2) * self.stencil_radius_in_km
-        dy = -(px_y - buf_h / 2) / (buf_h / 2) * self.stencil_radius_in_km
-        dist_km = np.sqrt(dx**2 + dy**2)
-        bearing = np.rad2deg(np.arctan2(dx, dy))  # atan2(east, north)
-        dist_nm = dist_km / NM2KM
-        # kwikpos: given reference + bearing + distance → new lat/lon
-        lat, lon = bs.tools.geo.kwikpos(
-            self.center_point['lat'], self.center_point['lon'],
-            bearing, dist_nm)
-        return lat, lon
-
-    # --- boundary extraction ------------------------------------------------
-
-    @staticmethod
-    def _boundary_to_polygon(region_mask, max_verts=48):
-        """Extract boundary pixels of a binary region and return an
-        angle-sorted polygon of at most *max_verts* vertices.
-
-        Uses ``binary_erosion`` for reliable boundary detection and
-        angular sorting from the centroid so edges never cross.
-
-        Returns a list of ``(idx0, idx1)`` pixel-coordinate tuples.
-        """
-        eroded = ndimage.binary_erosion(region_mask)
-        boundary = region_mask & ~eroded
-        coords = np.argwhere(boundary)  # (N, 2)
-        if len(coords) < 3:
-            return []
-
-        # Angular sort from centroid
-        cx, cy = coords.mean(axis=0)
-        angles = np.arctan2(coords[:, 1] - cy, coords[:, 0] - cx)
-        order = np.argsort(angles)
-
-        # Uniform subsample along the angle-sorted list (preserves shape)
-        if len(order) > max_verts:
-            pick = np.linspace(0, len(order) - 1, max_verts, dtype=int)
-            order = order[pick]
-
-        return [(int(coords[i][0]), int(coords[i][1])) for i in order]
-
-    # --- main entry point  -------------------------------------------------
-
-    def _generate_face_obstacles(self):
-        """Rasterize corridors onto an offscreen buffer, flood-fill from
-        the border to find exterior space, then extract interior void
-        regions as obstacle polygons in lat/lon coordinates.
-
-        Each obstacle dict contains:
-          - ``coords``   – [(lat, lon), …] polygon of the void region
-          - ``path``     – matplotlib.path.Path for point-in-polygon tests
-          - ``centroid`` – (lat, lon) of the centroid
-        """
-        if self.subgraph is None or self.subgraph.number_of_edges() == 0:
-            return []
-
-        # Ensure pygame is initialised (needed for offscreen Surface)
-        if not pygame.get_init():
-            pygame.init()
-
-        W = H = self._RASTER_RES
-        # corridor half-width in pixels
-        corridor_half_px = max(1, int(
-            (AIRWAY_WIDTH / 2.0 * NM2KM) /
-            self.stencil_radius_in_km * (W / 2)))
-        corridor_px = corridor_half_px * 2 + 1  # full diameter (odd)
-
-        # ---- 1. Rasterize corridors onto a binary mask --------------------
-        # We use an offscreen pygame Surface so we can reuse the same
-        # thick-line drawing already proven in _render_frame.
-        buf = pygame.Surface((W, H))
-        buf.fill((0, 0, 0))  # black = empty
-
-        for u, v in self.subgraph.edges():
-            pu = self.subgraph.nodes[u]
-            pv = self.subgraph.nodes[v]
-            if 'lat' not in pu or 'lat' not in pv:
-                continue
-            x1, y1 = self._latlon_to_px(pu['lat'], pu['lon'], W, H)
-            x2, y2 = self._latlon_to_px(pv['lat'], pv['lon'], W, H)
-            pygame.draw.line(buf, (255, 255, 255), (x1, y1), (x2, y2),
-                             corridor_px)
-            # round caps at each node
-            pygame.draw.circle(buf, (255, 255, 255), (x1, y1), corridor_half_px)
-            pygame.draw.circle(buf, (255, 255, 255), (x2, y2), corridor_half_px)
-
-        # Convert to numpy mask: 1 = corridor, 0 = empty
-        arr = pygame.surfarray.pixels3d(buf)          # shape (W, H, 3)
-        mask = (arr[:, :, 0] > 128).astype(np.uint8)  # shape (W, H)
-        del arr  # release surface lock
-
-        # ---- 2. Flood-fill exterior from border ---------------------------
-        # empty_mask: 1 where there is NO corridor
-        empty_mask = 1 - mask
-
-        # Label connected components of the empty space
-        labeled, num_features = ndimage.label(empty_mask)
-
-        # Find which labels touch the image border → those are exterior
-        border_labels = set()
-        border_labels.update(labeled[0, :].tolist())   # top row
-        border_labels.update(labeled[-1, :].tolist())   # bottom row
-        border_labels.update(labeled[:, 0].tolist())    # left col
-        border_labels.update(labeled[:, -1].tolist())   # right col
-        border_labels.discard(0)  # 0 = corridor, not a void region
-
-        # ---- 3. Extract interior void regions -----------------------------
-        interior_labels = set()
-        obstacles = []
-        for lbl in range(1, num_features + 1):
-            if lbl in border_labels:
-                continue  # skip exterior
-
-            region_size = np.sum(labeled == lbl)
-            if region_size < self._MIN_VOID_PX_AREA:
-                continue  # too small, just noise
-
-            interior_labels.add(lbl)
-
-            # Build polygon from boundary pixels
-            region_mask = (labeled == lbl)
-            poly_px = self._boundary_to_polygon(region_mask,
-                                                self._MAX_CONTOUR_VERTS)
-            if len(poly_px) < 3:
-                continue
-
-            # surfarray pixels3d shape is (W, H, 3) → axis-0 = x, axis-1 = y
-            coords_ll = []
-            for px_x, px_y in poly_px:
-                lat, lon = self._px_to_latlon(px_x, px_y, W, H)
-                coords_ll.append((lat, lon))
-
-            if len(coords_ll) < 3:
-                continue
-
-            centroid_lat = np.mean([ll[0] for ll in coords_ll])
-            centroid_lon = np.mean([ll[1] for ll in coords_ll])
-
-            obstacles.append({
-                'coords':   coords_ll,
-                'path':     matplotlib.path.Path(coords_ll),
-                'centroid': (centroid_lat, centroid_lon),
-            })
-
-        # Store raster data for pixel-precise collision detection
-        self._obstacle_labeled = labeled
-        self._interior_labels = interior_labels
-
-        if DEBUG:
-            print(f"Obstacle generation (raster): {num_features} void "
-                  f"components found, {len(border_labels)} exterior, "
-                  f"{len(obstacles)} interior obstacle(s) kept.")
-
-        return obstacles
+        self.obstacle_rasterizer = ObstacleRasterizer()
 
     def _get_obs(self):
         ac_idx = bs.traf.id2idx('KL001')
@@ -632,8 +420,6 @@ class NavWaypointEvadeEnv(gym.Env):
     def _get_obstacle_penalty(self):
         """Check if the agent is inside a void-obstacle region using the
         raster mask.  Returns ``OBSTACLE_PENALTY`` on collision, else 0."""
-        if not hasattr(self, '_obstacle_labeled') or not self._interior_labels:
-            return 0.0
         try:
             ac_idx = bs.traf.id2idx('KL001')
             ac_lat = bs.traf.lat[ac_idx]
@@ -641,12 +427,8 @@ class NavWaypointEvadeEnv(gym.Env):
         except Exception:
             return 0.0
 
-        W = H = self._RASTER_RES
-        px_x, px_y = self._latlon_to_px(ac_lat, ac_lon, W, H)
-        if 0 <= px_x < W and 0 <= px_y < H:
-            label = self._obstacle_labeled[px_x, px_y]
-            if label in self._interior_labels:
-                return OBSTACLE_PENALTY
+        if self.obstacle_rasterizer.check_collision(ac_lat, ac_lon, self.center_point, self.stencil_radius_in_km):
+            return OBSTACLE_PENALTY
         return 0.0
 
     def _get_reward(self):
@@ -797,8 +579,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.bisector_lines = []
         self.used_node_ids = set()
         self.face_obstacles = []
-        self._obstacle_labeled = None
-        self._interior_labels = set()
+        self.obstacle_rasterizer = ObstacleRasterizer()
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -814,7 +595,10 @@ class NavWaypointEvadeEnv(gym.Env):
             number_of_vertices = self.subgraph.number_of_nodes()
         
         self.boundary_vertices = self._get_boundary_vertices()
-        self.face_obstacles = self._generate_face_obstacles()
+        self.face_obstacles = self.obstacle_rasterizer.generate(
+            self.subgraph, self.center_point, self.stencil_radius_in_km,
+            AIRWAY_WIDTH, debug=DEBUG
+        )
         
         self.agent_nav_path = self._get_agent_nav_path(self.boundary_vertices)
         self._calculate_all_bisector_lines()
@@ -1399,7 +1183,7 @@ class NavWaypointEvadeEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEvadeEnv(render_mode="human",window_height=500,window_width=500,stencil_radius_in_km=400,show_altitude_in_rendering=True,plot_all_points=True)
+    env = NavWaypointEvadeEnv(render_mode="human",window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
     env.metadata["render_fps"] = 20
     env.reset(seed=48)
     env.reset()
