@@ -5,8 +5,8 @@ import bluesky as bs
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import math
-from scipy.spatial import ConvexHull
-#from shapely.geometry import Point
+import matplotlib.path
+from scipy import ndimage
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -14,7 +14,6 @@ import networkx as nx
 
 SENSOR_RANGE = 200 #km
 
-DISTANCE_MARGIN = 5 # km
 
 AIRWAY_WIDTH = 8 # NM
 
@@ -27,15 +26,16 @@ DRIFT_PENALTY = -0.5
 ALTITUDE_PENALTY = -1.5 # altitude higher penalty than drift since more fuel cost
 INTRUSION_PENALTY = -4
 CORRIDOR_LEAVE_PENALTY = -1
+OBSTACLE_PENALTY = -30
 CRASH_PENALTY = -100
-ALTITUDE_PENALTY = -0.5
 
 
 # INTRUDER AND WAPOINT CONFIG
 NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
 INTRUSION_DISTANCE = 5 # NM
-CRASH_DISTANCE = 1 # NM for horizontal seperation
+CRASH_DISTANCE_HORIZONTAL = 0.1 #NM
+CRASH_DISTANCE_VERTICAL = 50 # m
 
 MIN_ROUTE_LENGTH = 9 #
 
@@ -54,8 +54,8 @@ FLIGHT_LEVEL = 340 #FL340
 FLIGHT_LEVEL_FT = FLIGHT_LEVEL * 100
 FLIGHT_LEVEL_M = FLIGHT_LEVEL_FT * FT_TO_M 
 
-VETICAL_SEPARATION_IN_FT = 1000
-VERTICAL_SEPARATION_IN_M = VETICAL_SEPARATION_IN_FT * FT_TO_M
+VERTICAL_SEPARATION_IN_FT = 1000
+VERTICAL_SEPARATION_IN_M = VERTICAL_SEPARATION_IN_FT * FT_TO_M
 
 WAYPOINT_REACH_DISTANCE = 5 # NM
 
@@ -157,6 +157,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.graph = load_graph(VERTICES_PATH, EDGES_PATH)
         self.window_width = window_width
         self.window_height = window_height
+        self.plot_all_points = plot_all_points
         if show_altitude_in_rendering:
             self.window_height +=200
             self.show_altitude_in_rendering = True
@@ -229,7 +230,192 @@ class NavWaypointEvadeEnv(gym.Env):
         self.intruder_paths = []
         self.current_passed_waypoint_idx = 0
         self.bisector_lines = []
+        self.used_node_ids = set()
         
+    # ------------------------------------------------------------------ #
+    #  Raster-based obstacle generation (works for any graph topology)      #
+    # ------------------------------------------------------------------ #
+
+    # Resolution of the offscreen rasterisation buffer.
+    # Higher = more accurate contours but slower.  1000 is a good trade-off.
+    _RASTER_RES = 1000
+
+    # Minimum area of a void region in *pixels²* to keep (filters noise).
+    _MIN_VOID_PX_AREA = 15
+
+    # Maximum number of vertices kept in each simplified contour polygon.
+    _MAX_CONTOUR_VERTS = 20
+
+    # --- pixel ↔ lat/lon helpers ------------------------------------------
+
+    def _latlon_to_px(self, lat, lon, buf_w, buf_h):
+        """Project lat/lon → pixel (x, y) on the raster buffer."""
+        qdr, dis = bs.tools.geo.kwikqdrdist(
+            self.center_point['lat'], self.center_point['lon'], lat, lon)
+        # dis is in NM; convert to km then to fraction of stencil radius
+        frac = (dis * NM2KM) / self.stencil_radius_in_km
+        px_x = buf_w / 2 + np.sin(np.deg2rad(qdr)) * frac * buf_w / 2
+        px_y = buf_h / 2 - np.cos(np.deg2rad(qdr)) * frac * buf_h / 2
+        return int(round(px_x)), int(round(px_y))
+
+    def _px_to_latlon(self, px_x, px_y, buf_w, buf_h):
+        """Reverse-project pixel (x, y) → (lat, lon)."""
+        # pixel offset from centre
+        dx = (px_x - buf_w / 2) / (buf_w / 2) * self.stencil_radius_in_km
+        dy = -(px_y - buf_h / 2) / (buf_h / 2) * self.stencil_radius_in_km
+        dist_km = np.sqrt(dx**2 + dy**2)
+        bearing = np.rad2deg(np.arctan2(dx, dy))  # atan2(east, north)
+        dist_nm = dist_km / NM2KM
+        # kwikpos: given reference + bearing + distance → new lat/lon
+        lat, lon = bs.tools.geo.kwikpos(
+            self.center_point['lat'], self.center_point['lon'],
+            bearing, dist_nm)
+        return lat, lon
+
+    # --- boundary extraction ------------------------------------------------
+
+    @staticmethod
+    def _boundary_to_polygon(region_mask, max_verts=48):
+        """Extract boundary pixels of a binary region and return an
+        angle-sorted polygon of at most *max_verts* vertices.
+
+        Uses ``binary_erosion`` for reliable boundary detection and
+        angular sorting from the centroid so edges never cross.
+
+        Returns a list of ``(idx0, idx1)`` pixel-coordinate tuples.
+        """
+        eroded = ndimage.binary_erosion(region_mask)
+        boundary = region_mask & ~eroded
+        coords = np.argwhere(boundary)  # (N, 2)
+        if len(coords) < 3:
+            return []
+
+        # Angular sort from centroid
+        cx, cy = coords.mean(axis=0)
+        angles = np.arctan2(coords[:, 1] - cy, coords[:, 0] - cx)
+        order = np.argsort(angles)
+
+        # Uniform subsample along the angle-sorted list (preserves shape)
+        if len(order) > max_verts:
+            pick = np.linspace(0, len(order) - 1, max_verts, dtype=int)
+            order = order[pick]
+
+        return [(int(coords[i][0]), int(coords[i][1])) for i in order]
+
+    # --- main entry point  -------------------------------------------------
+
+    def _generate_face_obstacles(self):
+        """Rasterize corridors onto an offscreen buffer, flood-fill from
+        the border to find exterior space, then extract interior void
+        regions as obstacle polygons in lat/lon coordinates.
+
+        Each obstacle dict contains:
+          - ``coords``   – [(lat, lon), …] polygon of the void region
+          - ``path``     – matplotlib.path.Path for point-in-polygon tests
+          - ``centroid`` – (lat, lon) of the centroid
+        """
+        if self.subgraph is None or self.subgraph.number_of_edges() == 0:
+            return []
+
+        # Ensure pygame is initialised (needed for offscreen Surface)
+        if not pygame.get_init():
+            pygame.init()
+
+        W = H = self._RASTER_RES
+        # corridor half-width in pixels
+        corridor_half_px = max(1, int(
+            (AIRWAY_WIDTH / 2.0 * NM2KM) /
+            self.stencil_radius_in_km * (W / 2)))
+        corridor_px = corridor_half_px * 2 + 1  # full diameter (odd)
+
+        # ---- 1. Rasterize corridors onto a binary mask --------------------
+        # We use an offscreen pygame Surface so we can reuse the same
+        # thick-line drawing already proven in _render_frame.
+        buf = pygame.Surface((W, H))
+        buf.fill((0, 0, 0))  # black = empty
+
+        for u, v in self.subgraph.edges():
+            pu = self.subgraph.nodes[u]
+            pv = self.subgraph.nodes[v]
+            if 'lat' not in pu or 'lat' not in pv:
+                continue
+            x1, y1 = self._latlon_to_px(pu['lat'], pu['lon'], W, H)
+            x2, y2 = self._latlon_to_px(pv['lat'], pv['lon'], W, H)
+            pygame.draw.line(buf, (255, 255, 255), (x1, y1), (x2, y2),
+                             corridor_px)
+            # round caps at each node
+            pygame.draw.circle(buf, (255, 255, 255), (x1, y1), corridor_half_px)
+            pygame.draw.circle(buf, (255, 255, 255), (x2, y2), corridor_half_px)
+
+        # Convert to numpy mask: 1 = corridor, 0 = empty
+        arr = pygame.surfarray.pixels3d(buf)          # shape (W, H, 3)
+        mask = (arr[:, :, 0] > 128).astype(np.uint8)  # shape (W, H)
+        del arr  # release surface lock
+
+        # ---- 2. Flood-fill exterior from border ---------------------------
+        # empty_mask: 1 where there is NO corridor
+        empty_mask = 1 - mask
+
+        # Label connected components of the empty space
+        labeled, num_features = ndimage.label(empty_mask)
+
+        # Find which labels touch the image border → those are exterior
+        border_labels = set()
+        border_labels.update(labeled[0, :].tolist())   # top row
+        border_labels.update(labeled[-1, :].tolist())   # bottom row
+        border_labels.update(labeled[:, 0].tolist())    # left col
+        border_labels.update(labeled[:, -1].tolist())   # right col
+        border_labels.discard(0)  # 0 = corridor, not a void region
+
+        # ---- 3. Extract interior void regions -----------------------------
+        interior_labels = set()
+        obstacles = []
+        for lbl in range(1, num_features + 1):
+            if lbl in border_labels:
+                continue  # skip exterior
+
+            region_size = np.sum(labeled == lbl)
+            if region_size < self._MIN_VOID_PX_AREA:
+                continue  # too small, just noise
+
+            interior_labels.add(lbl)
+
+            # Build polygon from boundary pixels
+            region_mask = (labeled == lbl)
+            poly_px = self._boundary_to_polygon(region_mask,
+                                                self._MAX_CONTOUR_VERTS)
+            if len(poly_px) < 3:
+                continue
+
+            # surfarray pixels3d shape is (W, H, 3) → axis-0 = x, axis-1 = y
+            coords_ll = []
+            for px_x, px_y in poly_px:
+                lat, lon = self._px_to_latlon(px_x, px_y, W, H)
+                coords_ll.append((lat, lon))
+
+            if len(coords_ll) < 3:
+                continue
+
+            centroid_lat = np.mean([ll[0] for ll in coords_ll])
+            centroid_lon = np.mean([ll[1] for ll in coords_ll])
+
+            obstacles.append({
+                'coords':   coords_ll,
+                'path':     matplotlib.path.Path(coords_ll),
+                'centroid': (centroid_lat, centroid_lon),
+            })
+
+        # Store raster data for pixel-precise collision detection
+        self._obstacle_labeled = labeled
+        self._interior_labels = interior_labels
+
+        if DEBUG:
+            print(f"Obstacle generation (raster): {num_features} void "
+                  f"components found, {len(border_labels)} exterior, "
+                  f"{len(obstacles)} interior obstacle(s) kept.")
+
+        return obstacles
+
     def _get_obs(self):
         ac_idx = bs.traf.id2idx('KL001')
 
@@ -243,8 +429,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.wpt_qdr = []
         self.cos_drift = []
         self.sin_drift = []
-        self.drift = []
-
+    
         self.ac_hdg = bs.traf.hdg[ac_idx]
         self.ac_alt = bs.traf.alt[ac_idx]
         self.own_z_deviation = (self.ac_alt - FLIGHT_LEVEL_M)/2*VERTICAL_SEPARATION_IN_M #z-deviation normalized by vertical separaiton
@@ -253,12 +438,21 @@ class NavWaypointEvadeEnv(gym.Env):
         for i in range(NUM_INTRUDERS):
             int_id = f'INT{i:03d}'
             int_idx = bs.traf.id2idx(int_id)
+            if int_idx < 0:
+                # Intruder doesn't exist, fill with default values
+                self.intruder_distance.append(SENSOR_RANGE)
+                self.cos_bearing.append(1)  # cos(0) = 1
+                self.sin_bearing.append(0)  # sin(0) = 0
+                self.x_difference_speed.append(0)
+                self.y_difference_speed.append(0)
+                self.z_deviation.append(0)
+                continue
             z_dev = self.ac_alt - bs.traf.alt[int_idx]
             self.z_deviation.append(z_dev)
             
             int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
         
-            self.intruder_distance.append(np.clip((int_dis * NM2KM)/SENSOR_RANGE,0,1))
+            self.intruder_distance.append(int_dis*NM2KM)
 
             bearing = self.ac_hdg - int_qdr
             bearing = fn.bound_angle_positive_negative_180(bearing)
@@ -275,7 +469,6 @@ class NavWaypointEvadeEnv(gym.Env):
             
         # set the waypoints in the observation frame
         self.waypoint_distance = []
-        self.wpt_qdr = []
         self.cos_wp_bearing = []
         self.sin_wp_bearing = []
         self.waypoint_mask = []
@@ -286,13 +479,12 @@ class NavWaypointEvadeEnv(gym.Env):
                 wp = self.agent_nav_path[self.current_passed_waypoint_idx + i]
                 wpt_qdr, wpt_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], wp['lat'], wp['lon'])
                 self.waypoint_distance.append(np.clip((wpt_dis * NM2KM)/SENSOR_RANGE,0,1))
-                self.wpt_qdr.append(wpt_qdr)
+        
                 self.cos_wp_bearing.append(np.cos(np.deg2rad(wpt_qdr - self.ac_hdg)))
                 self.sin_wp_bearing.append(np.sin(np.deg2rad(wpt_qdr - self.ac_hdg)))
                 self.waypoint_mask.append(1)
             else:
                 self.waypoint_distance.append(0)
-                self.wpt_qdr.append(0)
                 self.cos_wp_bearing.append(0)
                 self.sin_wp_bearing.append(0)
                 self.waypoint_mask.append(0)
@@ -418,11 +610,15 @@ class NavWaypointEvadeEnv(gym.Env):
             # LOS occurs if BOTH horizontal AND vertical constraints are violated simultaneously
             horizontal_violation = dist_nm < INTRUSION_DISTANCE
             vertical_violation = dist_vert_m < VERTICAL_SEPARATION_IN_M
-            
-            if horizontal_violation and vertical_violation:
+            terminated = False
+            if horizontal_violation and vertical_violation and dist_nm < CRASH_DISTANCE_HORIZONTAL and dist_vert_m < CRASH_DISTANCE_VERTICAL:
+                total_penalty += CRASH_PENALTY
+                terminated = True
+            elif horizontal_violation and vertical_violation:
                 total_penalty += INTRUSION_PENALTY
+            
                 
-        return total_penalty
+        return total_penalty,terminated
     
     def _altitude_penalty(self):
         # penalize the agent for deviating fromt the target penalty,
@@ -432,15 +628,36 @@ class NavWaypointEvadeEnv(gym.Env):
         max_diff = ALTITUDE_STEPS * D_ALTITUDE
         normalized_diff = np.clip(alt_diff / max_diff, 0, 1)
         return normalized_diff * ALTITUDE_PENALTY
-    
+
+    def _get_obstacle_penalty(self):
+        """Check if the agent is inside a void-obstacle region using the
+        raster mask.  Returns ``OBSTACLE_PENALTY`` on collision, else 0."""
+        if not hasattr(self, '_obstacle_labeled') or not self._interior_labels:
+            return 0.0
+        try:
+            ac_idx = bs.traf.id2idx('KL001')
+            ac_lat = bs.traf.lat[ac_idx]
+            ac_lon = bs.traf.lon[ac_idx]
+        except Exception:
+            return 0.0
+
+        W = H = self._RASTER_RES
+        px_x, px_y = self._latlon_to_px(ac_lat, ac_lon, W, H)
+        if 0 <= px_x < W and 0 <= px_y < H:
+            label = self._obstacle_labeled[px_x, px_y]
+            if label in self._interior_labels:
+                return OBSTACLE_PENALTY
+        return 0.0
+
     def _get_reward(self):
         
         terminated = False
         waypoints_passed = self._check_pass_waypoint_bisector_line()
         drift_penalty = self._get_drift_penalty()
         corridor_penalty = self._get_corridor_penalty()
-        intrusion_penalty = self._get_intrusion_penalty()
+        intrusion_penalty,terminated = self._get_intrusion_penalty()
         altitude_penalty = self._altitude_penalty()
+        obstacle_penalty = self._get_obstacle_penalty()
         reach_reward = waypoints_passed * REACH_REWARD
         
         
@@ -449,7 +666,7 @@ class NavWaypointEvadeEnv(gym.Env):
             reach_reward += REACH_REWARD * 5
             terminated = True
         
-        reward = reach_reward + drift_penalty + corridor_penalty + intrusion_penalty + altitude_penalty
+        reward = reach_reward + drift_penalty + corridor_penalty + intrusion_penalty + altitude_penalty + obstacle_penalty
         return reward, terminated
         
     
@@ -499,7 +716,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 qdr_wp_ac, dist_wp_ac = bs.tools.geo.kwikqdrdist(bl['lat'], bl['lon'], ac_lat, ac_lon)
                 angle_diff = fn.bound_angle_positive_negative_180(qdr_wp_ac - bl['normal_qdr'])
 
-                if abs(angle_diff) < 90 and (dist_wp_ac * NM2KM < 2*AIRWAY_WIDTH):
+                if abs(angle_diff) < 90 and (dist_wp_ac * NM2KM < 2*AIRWAY_WIDTH): #This means the aircraft can pass the waypoint 1 corridor width to each side of the bisector line
                     self.current_passed_waypoint_idx += 1
                     passed_this_step = True
                     #print(f"Passed waypoint {self.current_passed_waypoint_idx}")
@@ -578,6 +795,10 @@ class NavWaypointEvadeEnv(gym.Env):
         self.intruder_paths = []
         self.current_passed_waypoint_idx = 0
         self.bisector_lines = []
+        self.used_node_ids = set()
+        self.face_obstacles = []
+        self._obstacle_labeled = None
+        self._interior_labels = set()
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -593,6 +814,8 @@ class NavWaypointEvadeEnv(gym.Env):
             number_of_vertices = self.subgraph.number_of_nodes()
         
         self.boundary_vertices = self._get_boundary_vertices()
+        self.face_obstacles = self._generate_face_obstacles()
+        
         self.agent_nav_path = self._get_agent_nav_path(self.boundary_vertices)
         self._calculate_all_bisector_lines()
         self.intruder_paths = []
@@ -610,12 +833,21 @@ class NavWaypointEvadeEnv(gym.Env):
         # add a last intruder path where its just the reverse of the agent path
         conflict_intruder_path = self.agent_nav_path[::-1]
         self.intruder_paths.append(conflict_intruder_path)
+        # Collect all node IDs used in any path for filtered rendering
+        self.used_node_ids = set()
+        for wp in self.agent_nav_path:
+            self.used_node_ids.add(wp['id'])
+        for intruder_path in self.intruder_paths:
+            for wp in intruder_path:
+                self.used_node_ids.add(wp['id'])
+        
         self._spawn_agent()
         self._spawn_intruders()
         if DEBUG:
             for i in self.intruder_paths:
                 print(f"Intruder path with {len(i)} waypoints")
         self._render_frame()
+        
         return self._get_obs(), {} #self._get_info()
     
     def _spawn_agent(self):
@@ -851,23 +1083,22 @@ class NavWaypointEvadeEnv(gym.Env):
         # draw a horizontal line in the middle of y = 100 
         # thats where FL340 
         
-        # first draw a rectangle  with solid color over the 200 pixel height to make it look better
-        pygame.draw.rect(canvas, COLORS["VERTICAL_BG"], pygame.Rect(0, 0, self.window_width, 200))
-        
         # Total vertical range covered by the visualization in pixels
         viz_height_px = 200
-        center_y = viz_height_px // 2
-        # Total number of steps shown (e.g., if steps_from_fl is 2, there are 5 lines)
-        total_steps = 2 * steps_from_fl + 1
-        # Pixels per foot in this specific visualization
-        px_per_foot = viz_height_px / (total_steps * stepsize_in_feet)
         
-        lines_y = []
+        # first draw a rectangle  with solid color over the 200 pixel height to make it look better
+        pygame.draw.rect(canvas, COLORS["VERTICAL_BG"], pygame.Rect(0, 0, self.window_width, viz_height_px))
+        
+        center_y = viz_height_px // 2
+        # Pixels per step (one stepsize_in_feet interval)
+        px_per_step = viz_height_px / (2 * steps_from_fl)
+        # Pixels per foot in this specific visualization
+        px_per_foot = px_per_step / stepsize_in_feet
+        
         labels = []
         for i in range(-steps_from_fl,steps_from_fl+1):
-            # the place for the visualization is the top 200 pixel of the screen
-            y = int((steps_from_fl - i)*200/(2*steps_from_fl+1))
-            lines_y.append(y)
+            # FL is at center_y, higher FLs go up (smaller y), lower FLs go down
+            y = int(center_y - i * px_per_step)
             labels.append(f"FL{(FLIGHT_LEVEL*100 + (i*stepsize_in_feet))//100}")
             
             
@@ -878,7 +1109,20 @@ class NavWaypointEvadeEnv(gym.Env):
             
             
             text = font.render(labels[-1], True, COLORS["TEXT"])
-            canvas.blit(text, (10, y+5))
+            text_height = text.get_height()
+            
+            # Position text based on position relative to center
+            if i == steps_from_fl:
+                # Above center (higher FL): text below the line
+                text_y = y + 5
+            elif i == -steps_from_fl:
+                # Below center (lower FL): text above the line
+                text_y = y - text_height - 5
+            else:
+                # Center line: text vertically centered
+                text_y = y - text_height // 2
+            
+            canvas.blit(text, (10, text_y))
             
         # draw intruders in the visualization 
         own_idx = bs.traf.id2idx('KL001')
@@ -893,7 +1137,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 alt_diff_ft = int_alt_ft - (FLIGHT_LEVEL * 100)
                 
                 # Vertical Position: Center (100) minus the displacement
-                y_pos = int(center_y - (alt_diff_ft * px_per_foot)- 500*px_per_foot) # the 500*px_per_foot is to move the whole visualization up so that FL340 is in the middle of the screen instead of at the bottom
+                y_pos = int(center_y - (alt_diff_ft * px_per_foot))
                 
                 int_lat = bs.traf.lat[int_idx]
                 int_lon = bs.traf.lon[int_idx]
@@ -940,14 +1184,28 @@ class NavWaypointEvadeEnv(gym.Env):
         own_altitude = bs.traf.alt[own_idx] / FT_TO_M
         alt_diff_ft = own_altitude - (FLIGHT_LEVEL * 100)
         x_pos,_ = self.lat_lon_to_screen_coordinates(bs.traf.lat[own_idx], bs.traf.lon[own_idx])
-        own_y_pos = int(center_y - (alt_diff_ft * px_per_foot)- 500*px_per_foot)
+        own_y_pos = int(center_y - (alt_diff_ft * px_per_foot))
         pygame.draw.circle(canvas, COLORS["OWNSHIP"], (x_pos, own_y_pos), 5)
         
         
         return canvas
         
         
+    def _draw_obstacles(self, canvas):
+        """Draw the void-obstacle polygons (the free space inside faces
+        that is NOT covered by the airway corridor width)."""
+        if not hasattr(self, 'face_obstacles'):
+            return
 
+        for obs in self.face_obstacles:
+            void_screen = []
+            for lat, lon in obs['coords']:
+                x, y = self.lat_lon_to_screen_coordinates(lat, lon)
+                void_screen.append((x, y))
+
+            if len(void_screen) > 2:
+                pygame.draw.polygon(canvas, (40, 20, 20), void_screen, 0)   # dark-red fill
+                pygame.draw.polygon(canvas, (255, 50, 50), void_screen, 1)  # red outline
     
     def _render_frame(self):
         self._pre_render()
@@ -960,6 +1218,9 @@ class NavWaypointEvadeEnv(gym.Env):
         agent_path_ids = [p['id'] for p in self.agent_nav_path]
         edge_coords = []
         for u, v in self.subgraph.edges():
+            # When plot_all_points is False, only show edges where both nodes are used in a path
+            if not self.plot_all_points and (u not in self.used_node_ids or v not in self.used_node_ids):
+                continue
             pos_u = self.subgraph.nodes[u]
             pos_v = self.subgraph.nodes[v]
             if 'lat' in pos_u and 'lon' in pos_u and 'lat' in pos_v and 'lon' in pos_v:
@@ -980,6 +1241,7 @@ class NavWaypointEvadeEnv(gym.Env):
             pygame.draw.circle(canvas, COLORS["AIRWAY_CORRIDOR"], start, int(AIRWAY_WIDTH/2*NM2KM*self.px_per_km))
             pygame.draw.circle(canvas, COLORS["AIRWAY_CORRIDOR"], end, int(AIRWAY_WIDTH/2*NM2KM*self.px_per_km))
 
+        self._draw_obstacles(canvas)
         # Draw all bisector lines
         if DEBUG:
             for bi, bl in enumerate(self.bisector_lines):
@@ -993,7 +1255,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 line_angle_1 = np.deg2rad(normal_qdr + 90)
                 line_angle_2 = np.deg2rad(normal_qdr - 90)
                 
-                line_len = 50 # pixels
+                line_len = AIRWAY_WIDTH*NM2KM*self.px_per_km  # Extend the line across the airway corridor
                 
                 p1_x = cx + np.sin(line_angle_1) * line_len
                 p1_y = cy - np.cos(line_angle_1) * line_len # Y is inverted in screen coords
@@ -1021,6 +1283,9 @@ class NavWaypointEvadeEnv(gym.Env):
             pygame.draw.line(canvas,color, start, end, 1)
 
         for node in self.subgraph.nodes:
+            # When plot_all_points is False, only show nodes used in a path
+            if not self.plot_all_points and node not in self.used_node_ids:
+                continue
             data = self.subgraph.nodes[node]
             if 'lat' in data and 'lon' in data:
                 x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
@@ -1031,27 +1296,7 @@ class NavWaypointEvadeEnv(gym.Env):
                     color = COLORS["WAYPOINT_ACTIVE"]
                 
                 pygame.draw.circle(canvas, color, (int(x), int(y)), 3) 
-        
-        # boundary_vertices = self._get_boundary_vertices()
-        # for node in boundary_vertices:
-        #     data = self.subgraph.nodes[node]
-        #     if 'lat' in data and 'lon' in data:
-        #         x, y = self.lat_lon_to_screen_coordinates(data['lat'], data['lon'])
-                
-        #         color = (0, 0, 255)
-        #         # Check if node id is in the agent path
-        #         if self.agent_nav_path and node in [p['id'] for p in self.agent_nav_path]:
-        #             color = (255, 255, 0)
-                
-        #         pygame.draw.circle(canvas, color, (int(x), int(y)), 3)
-                
-                
-        
-        
-       
-
-    
-        
+     
         
         #DRAW INTRUDERS 
         try:
@@ -1154,7 +1399,7 @@ class NavWaypointEvadeEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEvadeEnv(render_mode="human",window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True)
+    env = NavWaypointEvadeEnv(render_mode="human",window_height=500,window_width=500,stencil_radius_in_km=400,show_altitude_in_rendering=True,plot_all_points=True)
     env.metadata["render_fps"] = 20
     env.reset(seed=48)
     env.reset()
@@ -1197,11 +1442,15 @@ if __name__ == "__main__":
                     altitude_action = min(altitude_action + 1, 2*ALTITUDE_STEPS)
                 elif event.key == pygame.K_DOWN:
                     altitude_action = max(altitude_action - 1, 0)
+                elif event.key == pygame.K_r:
+                    print("Resetting environment.")
+                    env.reset()
             elif event.type == pygame.KEYUP:
                 if event.key in [pygame.K_LEFT, pygame.K_RIGHT]:
                     heading_action = 0
                     
         _, reward, terminated, _, _ = env.step([heading_action, altitude_action])
+        print(reward)
         if terminated:
             print("Episode terminated, resetting environment.")
             env.reset()
