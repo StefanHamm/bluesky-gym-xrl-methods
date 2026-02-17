@@ -16,7 +16,7 @@ SENSOR_RANGE = 200 #km
 
 AIRWAY_WIDTH = 8 # NM
 
-DEBUG = True
+DEBUG = False
 
 
 # REWARDS
@@ -34,6 +34,8 @@ NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
 INTRUSION_DISTANCE = 5 # NM
 CRASH_DISTANCE_HORIZONTAL = 0.1 #NM
+
+
 CRASH_DISTANCE_VERTICAL = 50 # m
 
 MIN_ROUTE_LENGTH = 9 #
@@ -44,7 +46,7 @@ AC_SPD = 150 #m/s
 NM2KM = 1.852
 KT2MPS = 0.514444
 
-ACTION_FREQUENCY = 1
+ACTION_FREQUENCY = 5
 
 FT_TO_M = 0.3048
 AC_TYPE = "A320"
@@ -76,6 +78,11 @@ ALT_REACH_DISTANCE = 50 #m how close it needs to be to accept new commands
 
 D_HEADING = 45 #degree action of 1 changes heading by 45 degree
 
+#OBSTACLE DETECTION
+MIN_BEARING =-45
+MAX_BEARING = 45
+NUMBER_OF_DETECTION_RAYS = 7
+
 
 # --- ATC REALISM COLOR PALETTE ---
 COLORS = {
@@ -106,7 +113,11 @@ COLORS = {
     "BISECTOR_FUTURE": (70, 130, 180),  # Steel Blue
     
     # UI Elements
-    "SCALE_LINE": (255, 255, 255)
+    "SCALE_LINE": (255, 255, 255),
+    
+    # Obstacles
+    "OBSTACLE_FILL": (40, 20, 20),      # dark-red fill
+    "OBSTACLE_OUTLINE": (255, 50, 50),  # red outline
 }
 
 
@@ -133,6 +144,10 @@ class NavWaypointEvadeEnv(gym.Env):
             self.window_height +=200
             self.show_altitude_in_rendering = True
         
+        #check for planarity of the graph using nx.check_planarity
+        # print("Checking graph planarity...")
+        # is_planar, _ = nx.check_planarity(self.graph)
+        # print("Graph is planar:", is_planar)
         
         self.window_size = (self.window_width, self.window_height)
         self.window = None
@@ -143,29 +158,34 @@ class NavWaypointEvadeEnv(gym.Env):
         self.render_mode = render_mode
         
         self.observation_space = spaces.Dict(
-            {
+            {   #observation of the intruders
                 "intruder_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "cos_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "sin_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "z_difference_pos": spaces.Box(-np.inf, np.inf, shape=(NUM_INTRUDERS,), dtype=np.float64),
                 "x_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
                 "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
-
+                #observation of the waypoints, only the next 3 waypoints are considered, if there are less than 3 waypoints left, the rest is filled with 0 and the mask indicates that
                 "waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64), # always has previous current and next waypoint this allows it to learn the drift in airway.
                 "waypoint_cos_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
                 "waypoint_sin_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
                 "waypoint_mask": spaces.Box(0, 1, shape = (3,), dtype=np.float64), # this indicates if the waypoints exists. only valid for the last obs
-                "own_z_deviation": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64) #this is the deviation of the desired altitude
+                # own altitude
+                "own_z_deviation": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64), #this is the deviation of the desired altitude
+                # obs of the obsticles just distances of these rays
+                "obstacle_dis": spaces.Box(0, 1, shape=(NUMBER_OF_DETECTION_RAYS,), dtype=np.float64)
             }
         )
         
         # first value is heading change, second value is altitude change
         
         # Example: heading continuous, altitude discrete (5 options)
-        self.action_space = spaces.Tuple((
-            spaces.Box(-1, 1, shape=(1,), dtype=np.float32),   # heading
-            spaces.Discrete(2*ALTITUDE_STEPS+1)                                 # altitude: 0,1,2,3,4
-        ))
+        # Heading: -1 to 1
+        # Altitude: 0 to 4 (assuming 5 steps)
+        low = np.array([-1.0, -ALTITUDE_STEPS], dtype=np.float32)
+        high = np.array([1.0, ALTITUDE_STEPS], dtype=np.float32)
+
+        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
             bs.init(mode='sim', detached=True,workdir=workdir)
@@ -203,6 +223,32 @@ class NavWaypointEvadeEnv(gym.Env):
         self.bisector_lines = []
         self.used_node_ids = set()
         self.obstacle_rasterizer = ObstacleRasterizer()
+        
+        self.timestep = 0
+        
+        #info variables
+        self.drift_mean = 0 #averaged using running mean method
+        self.crash = 0
+        self.intrusion_count = 0
+        self.corridor_leave_mean= 0 #averaged using running mean method
+        self.obstacle_intrusion_count = 0
+        self.waypoint_reached_count = 0
+        self.path_length = 0
+        
+        #route length reward scaling
+        #the max episode across routes is fixed
+        
+    def _get_info(self):
+        info = {
+            "drift_mean": self.drift_mean,
+            "corridor_leave_mean": self.corridor_leave_mean,
+            "intrusion_count": self.intrusion_count,
+            "obstacle_intrusion_count": self.obstacle_intrusion_count,
+            "waypoint_reached_count": self.waypoint_reached_count,
+            "path_length": self.path_length,
+            "crash": self.crash
+        }
+        return info
 
     def _get_obs(self):
         ac_idx = bs.traf.id2idx('KL001')
@@ -220,7 +266,7 @@ class NavWaypointEvadeEnv(gym.Env):
     
         self.ac_hdg = bs.traf.hdg[ac_idx]
         self.ac_alt = bs.traf.alt[ac_idx]
-        self.own_z_deviation = (self.ac_alt - FLIGHT_LEVEL_M)/2*VERTICAL_SEPARATION_IN_M #z-deviation normalized by vertical separaiton
+        self.own_z_deviation = (self.ac_alt - FLIGHT_LEVEL_M)/(2*VERTICAL_SEPARATION_IN_M) #z-deviation normalized by vertical separaiton
         self.z_deviation = []
         self.relative_intruder_z_deviation = []
         for i in range(NUM_INTRUDERS):
@@ -266,7 +312,7 @@ class NavWaypointEvadeEnv(gym.Env):
             if self.current_passed_waypoint_idx + i < len(self.agent_nav_path):
                 wp = self.agent_nav_path[self.current_passed_waypoint_idx + i]
                 wpt_qdr, wpt_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], wp['lat'], wp['lon'])
-                self.waypoint_distance.append(np.clip((wpt_dis * NM2KM)/SENSOR_RANGE,0,1))
+                self.waypoint_distance.append(wpt_dis * NM2KM)
         
                 self.cos_wp_bearing.append(np.cos(np.deg2rad(wpt_qdr - self.ac_hdg)))
                 self.sin_wp_bearing.append(np.sin(np.deg2rad(wpt_qdr - self.ac_hdg)))
@@ -341,6 +387,10 @@ class NavWaypointEvadeEnv(gym.Env):
         # AIRWAY_WIDTH is the total width (e.g. 8 NM), so deviation limit is half that
         half_width = AIRWAY_WIDTH / 2.0
         
+        # Update running mean for corridor leave (1 if outside, 0 if inside)
+        corridor_leave = 1.0 if abs(xte) > half_width else 0.0
+        self.corridor_leave_mean += (corridor_leave - self.corridor_leave_mean) / (self.timestep + 1)
+        
         if abs(xte) > half_width:
             return CORRIDOR_LEAVE_PENALTY
         
@@ -355,6 +405,9 @@ class NavWaypointEvadeEnv(gym.Env):
         # We clip at 1.0 to ensure the penalty doesn't explode if they go way off track 
         # (the corridor penalty handles the "way off track" discrete case)
         normalized_deviation = np.clip(abs(xte) / half_width, 0, 1)
+        
+        # Update running mean for drift
+        self.drift_mean += (normalized_deviation - self.drift_mean) / (self.timestep + 1)
         
         # Apply penalty scaled by the factor
         # If DRIFT_PENALTY is -0.5, then max penalty is -0.5 at the edge, 0 at center.
@@ -401,9 +454,11 @@ class NavWaypointEvadeEnv(gym.Env):
             terminated = False
             if horizontal_violation and vertical_violation and dist_nm < CRASH_DISTANCE_HORIZONTAL and dist_vert_m < CRASH_DISTANCE_VERTICAL:
                 total_penalty += CRASH_PENALTY
+                self.crash = 1
                 terminated = True
             elif horizontal_violation and vertical_violation:
                 total_penalty += INTRUSION_PENALTY
+                self.intrusion_count += 1
             
                 
         return total_penalty,terminated
@@ -428,6 +483,7 @@ class NavWaypointEvadeEnv(gym.Env):
             return 0.0
 
         if self.obstacle_rasterizer.check_collision(ac_lat, ac_lon, self.center_point, self.stencil_radius_in_km):
+            self.obstacle_intrusion_count += 1
             return OBSTACLE_PENALTY
         return 0.0
 
@@ -441,7 +497,7 @@ class NavWaypointEvadeEnv(gym.Env):
         altitude_penalty = self._altitude_penalty()
         obstacle_penalty = self._get_obstacle_penalty()
         reach_reward = waypoints_passed * REACH_REWARD
-        
+        self.waypoint_reached_count += waypoints_passed
         
         if self.current_passed_waypoint_idx == len(self.agent_nav_path)-1:
             # give a big reward for reaching the final waypoint
@@ -527,8 +583,8 @@ class NavWaypointEvadeEnv(gym.Env):
 
         bs.stack.stack(f"HDG KL001 {action_hdg}")
         
-        
-        shifted_action = action[1] - ALTITUDE_STEPS # shift from 0,.., n to -1/2n,..., 0,..., 1/2n
+        discrete_action = int(np.round(action[1])) # round to nearest integer to get discrete FL step change
+        shifted_action = discrete_action - ALTITUDE_STEPS # shift from 0,.., n to -1/2n,..., 0,..., 1/2n
         target_altitude = FLIGHT_LEVEL_M + shifted_action * D_ALTITUDE
         
         ac_idx = bs.traf.id2idx('KL001')
@@ -556,16 +612,15 @@ class NavWaypointEvadeEnv(gym.Env):
                 observation =  self._get_obs()
                 self._render_frame()
 
+        self.timestep += 1
         observation = self._get_obs()
         reward, terminated = self._get_reward()
 
-        info =  {} #self._get_info()
+        info = self._get_info()
 
         # bluesky reset?? bs.sim.reset()
         if terminated:
-            for acid in bs.traf.id:
-                idx = bs.traf.id2idx(acid)
-                bs.traf.delete(idx)
+            bs.traf.reset()
 
         return observation, reward, terminated, False, info
     
@@ -580,6 +635,9 @@ class NavWaypointEvadeEnv(gym.Env):
         self.used_node_ids = set()
         self.face_obstacles = []
         self.obstacle_rasterizer = ObstacleRasterizer()
+        
+        #info vars
+        self.timestep =0
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -627,12 +685,14 @@ class NavWaypointEvadeEnv(gym.Env):
         
         self._spawn_agent()
         self._spawn_intruders()
+        self.path_length = len(self.agent_nav_path)
         if DEBUG:
             for i in self.intruder_paths:
                 print(f"Intruder path with {len(i)} waypoints")
-        self._render_frame()
+        if self.render_mode == "human":
+            self._render_frame()        
         
-        return self._get_obs(), {} #self._get_info()
+        return self._get_obs(), self._get_info()
     
     def _spawn_agent(self):
         # calculate heading between first two waypoints
@@ -646,7 +706,7 @@ class NavWaypointEvadeEnv(gym.Env):
     def _spawn_intruders(self):
         for i, intruder_path in enumerate(self.intruder_paths):
             acid = f'INT{i:03d}'
-            idx = bs.traf.id2idx(f'INT{i:03d}')
+            
             if intruder_path:
                 p0 = intruder_path[0]
                 p1 = intruder_path[1]
@@ -654,7 +714,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 
                 ac_alt = FLIGHT_LEVEL_M + self.np_random.integers(-INTRUDER_ALT_SPANRANGE_IN_1000FT*VERTICAL_SEPARATION_IN_M, INTRUDER_ALT_SPANRANGE_IN_1000FT*VERTICAL_SEPARATION_IN_M)
                 bs.traf.cre(acid,actype="A320",acspd=AC_SPD,acalt=ac_alt,aclat = p0["lat"],aclon=p0["lon"],achdg=bearing)
-
+                idx = bs.traf.id2idx(f'INT{i:03d}')
                 route_obj = bs.traf.ap.route[idx] # Get the specific route instance
 
             # 3. Add Waypoints
@@ -988,8 +1048,8 @@ class NavWaypointEvadeEnv(gym.Env):
                 void_screen.append((x, y))
 
             if len(void_screen) > 2:
-                pygame.draw.polygon(canvas, (40, 20, 20), void_screen, 0)   # dark-red fill
-                pygame.draw.polygon(canvas, (255, 50, 50), void_screen, 1)  # red outline
+                pygame.draw.polygon(canvas, COLORS["OBSTACLE_FILL"], void_screen, 0)   # dark-red fill
+                pygame.draw.polygon(canvas, COLORS["OBSTACLE_OUTLINE"], void_screen, 1)  # red outline
     
     def _render_frame(self):
         self._pre_render()
@@ -1212,7 +1272,8 @@ if __name__ == "__main__":
     altitude_action = 4
     while True:
         #print(f"Reward: {reward}")
-       
+        if i ==20:
+           break
         i=i+1
         # input the action using arrow keys increase or decrease heading by 10 degrees
         

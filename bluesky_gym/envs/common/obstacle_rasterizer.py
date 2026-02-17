@@ -39,7 +39,8 @@ class ObstacleRasterizer:
         self.min_void_px_area = min_void_px_area
         self.max_contour_verts = max_contour_verts
 
-        # Populated after generate() is called
+        # Popu
+        # ed after generate() is called
         self.obstacles = []
         self.obstacle_labeled = None
         self.interior_labels = set()
@@ -121,9 +122,9 @@ class ObstacleRasterizer:
         -------
         list[dict]
             List of obstacle dicts, each containing:
-              - ``coords``   – [(lat, lon), …] polygon of the void region
-              - ``path``     – matplotlib.path.Path for point-in-polygon tests
-              - ``centroid`` – (lat, lon) of the centroid
+              - ``coords``    [(lat, lon), …] polygon of the void region
+              - ``path``      matplotlib.path.Path for point-in-polygon tests
+              - ``centroid``  (lat, lon) of the centroid
         """
         self.obstacles = []
         self.obstacle_labeled = None
