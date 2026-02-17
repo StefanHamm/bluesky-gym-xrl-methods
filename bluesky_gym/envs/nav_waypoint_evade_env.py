@@ -25,7 +25,7 @@ DRIFT_PENALTY = -0.5
 ALTITUDE_PENALTY = -1.5 # altitude higher penalty than drift since more fuel cost
 INTRUSION_PENALTY = -4
 CORRIDOR_LEAVE_PENALTY = -1
-OBSTACLE_PENALTY = -30
+OBSTACLE_PENALTY = -5
 CRASH_PENALTY = -100
 
 
@@ -159,20 +159,20 @@ class NavWaypointEvadeEnv(gym.Env):
         
         self.observation_space = spaces.Dict(
             {   #observation of the intruders
-                "intruder_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
-                "cos_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
-                "sin_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
-                "z_difference_pos": spaces.Box(-np.inf, np.inf, shape=(NUM_INTRUDERS,), dtype=np.float64),
-                "x_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
-                "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "intruder_distance": spaces.Box(0, 1, shape = (NUM_INTRUDERS,), dtype=np.float64),  # clipped to [0,1] after normalizing by SENSOR_RANGE
+                "cos_difference_pos": spaces.Box(-1, 1, shape = (NUM_INTRUDERS,), dtype=np.float64),  # cos of bearing difference
+                "sin_difference_pos": spaces.Box(-1, 1, shape = (NUM_INTRUDERS,), dtype=np.float64),  # sin of bearing difference
+                "z_difference_pos": spaces.Box(-1, 1, shape=(NUM_INTRUDERS,), dtype=np.float64),  # clipped to [-1,1] after normalizing by VERTICAL_SEPARATION_IN_M
+                "x_difference_speed": spaces.Box(-1, 1, shape = (NUM_INTRUDERS,), dtype=np.float64),  # -cos(hdg_diff) * int_gs / AC_SPD, intruders fly at AC_SPD
+                "y_difference_speed": spaces.Box(0, 2, shape = (NUM_INTRUDERS,), dtype=np.float64),  # (ac_gs - sin(hdg_diff) * int_gs) / AC_SPD ≈ 1 - sin(hdg_diff)
                 #observation of the waypoints, only the next 3 waypoints are considered, if there are less than 3 waypoints left, the rest is filled with 0 and the mask indicates that
-                "waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64), # always has previous current and next waypoint this allows it to learn the drift in airway.
-                "waypoint_cos_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
-                "waypoint_sin_pos": spaces.Box(-np.inf, np.inf, shape = (3,), dtype=np.float64),
+                "waypoint_distance": spaces.Box(0, 1, shape = (3,), dtype=np.float64),  # clipped to [0,1] after normalizing by SENSOR_RANGE
+                "waypoint_cos_pos": spaces.Box(-1, 1, shape = (3,), dtype=np.float64),  # cos of waypoint bearing relative to heading
+                "waypoint_sin_pos": spaces.Box(-1, 1, shape = (3,), dtype=np.float64),  # sin of waypoint bearing relative to heading
                 "waypoint_mask": spaces.Box(0, 1, shape = (3,), dtype=np.float64), # this indicates if the waypoints exists. only valid for the last obs
                 # own altitude
-                "own_z_deviation": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64), #this is the deviation of the desired altitude
-                # obs of the obsticles just distances of these rays
+                "own_z_deviation": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),  # (alt - FL_M) / (2*VERT_SEP), max deviation = ALTITUDE_STEPS * D_ALTITUDE
+                # obs of the obstacles just distances of these rays
                 "obstacle_dis": spaces.Box(0, 1, shape=(NUMBER_OF_DETECTION_RAYS,), dtype=np.float64)
             }
         )
@@ -324,6 +324,16 @@ class NavWaypointEvadeEnv(gym.Env):
                 self.waypoint_mask.append(0)
                 
         
+        # --- Obstacle detection rays ---
+        ac_lat = bs.traf.lat[ac_idx]
+        ac_lon = bs.traf.lon[ac_idx]
+        obstacle_distances = self.obstacle_rasterizer.cast_rays(
+            ac_lat, ac_lon, self.ac_hdg,
+            self.center_point, self.stencil_radius_in_km,
+            SENSOR_RANGE, NUMBER_OF_DETECTION_RAYS,
+            MIN_BEARING, MAX_BEARING
+        )
+
         observation = {
                 "intruder_distance": np.clip(np.array(self.intruder_distance)/SENSOR_RANGE,0,1),
                 "cos_difference_pos": np.array(self.cos_bearing),
@@ -335,7 +345,8 @@ class NavWaypointEvadeEnv(gym.Env):
                 "waypoint_cos_pos": np.array(self.cos_wp_bearing),
                 "waypoint_sin_pos": np.array(self.sin_wp_bearing),
                 "waypoint_mask": np.array(self.waypoint_mask),
-                "own_z_deviation": np.array([self.own_z_deviation])
+                "own_z_deviation": np.array([self.own_z_deviation]),
+                "obstacle_dis": obstacle_distances
             }
         
         return observation
@@ -427,7 +438,7 @@ class NavWaypointEvadeEnv(gym.Env):
             own_alt = bs.traf.alt[own_idx]
         except:
             # If agent doesn't exist, no penalty calculation needed (or max penalty elsewhere)
-            return 0.0
+            return 0.0, True
 
         for i in range(NUM_INTRUDERS):
             int_id = f'INT{i:03d}'
@@ -1229,6 +1240,30 @@ class NavWaypointEvadeEnv(gym.Env):
                 pygame.draw.circle(canvas, COLORS["OWNSHIP"], (int(x_pos), int(y_pos)), 5)
 
                 pygame.draw.line(canvas, COLORS["OWNSHIP"], (int(x_pos), int(y_pos)), (int(end_x), int(end_y)), 2)
+
+                # --- Debug: draw obstacle detection rays ---
+                if DEBUG:
+                    ray_bearings = np.linspace(MIN_BEARING, MAX_BEARING, NUMBER_OF_DETECTION_RAYS)
+                    ray_distances = self.obstacle_rasterizer.cast_rays(
+                        own_lat, own_lon, own_hdg,
+                        self.center_point, self.stencil_radius_in_km,
+                        SENSOR_RANGE, NUMBER_OF_DETECTION_RAYS,
+                        MIN_BEARING, MAX_BEARING
+                    )
+                    sensor_range_px = SENSOR_RANGE * self.px_per_km
+                    for ray_i, offset_deg in enumerate(ray_bearings):
+                        ray_bearing = own_hdg + offset_deg
+                        ray_rad = np.deg2rad(ray_bearing)
+                        ray_len_px = ray_distances[ray_i] * sensor_range_px
+                        rx = x_pos + np.sin(ray_rad) * ray_len_px
+                        ry = y_pos - np.cos(ray_rad) * ray_len_px
+                        # Green when clear (1.0), red when obstacle is close (0.0)
+                        d = ray_distances[ray_i]
+                        ray_color = (int(255 * (1 - d)), int(255 * d), 0)
+                        pygame.draw.line(canvas, ray_color, (int(x_pos), int(y_pos)), (int(rx), int(ry)), 1)
+                        # Small dot at the ray endpoint
+                        pygame.draw.circle(canvas, ray_color, (int(rx), int(ry)), 3)
+
         except ValueError:
             # Agent not found
             print(ValueError)
@@ -1272,11 +1307,10 @@ if __name__ == "__main__":
     altitude_action = 4
     while True:
         #print(f"Reward: {reward}")
-        if i ==20:
-           break
+        
         i=i+1
         # input the action using arrow keys increase or decrease heading by 10 degrees
-        
+        print(i)
         for event in pygame.event.get():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_LEFT:

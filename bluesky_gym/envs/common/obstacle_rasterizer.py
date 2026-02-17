@@ -221,6 +221,84 @@ class ObstacleRasterizer:
 
         return obstacles
 
+    def cast_rays(self, lat, lon, heading_deg, center_point, stencil_radius_in_km,
+                  sensor_range_km, num_rays, min_bearing_deg, max_bearing_deg):
+        """Cast detection rays from a position and return normalised distances
+        to the nearest obstacle along each ray.
+
+        Parameters
+        ----------
+        lat, lon : float
+            Current position of the agent.
+        heading_deg : float
+            Current heading of the agent in degrees (clockwise from north).
+        center_point : dict
+            ``{'lat': float, 'lon': float}`` – geographic center for projection.
+        stencil_radius_in_km : float
+            Radius of the stencil area in km.
+        sensor_range_km : float
+            Maximum detection range in km.  Distances are normalised by this.
+        num_rays : int
+            Number of evenly-spaced rays between *min_bearing_deg* and
+            *max_bearing_deg*.
+        min_bearing_deg, max_bearing_deg : float
+            Angular span of the sensor cone relative to the heading
+            (negative = left, positive = right).
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape ``(num_rays,)`` with values in [0, 1].
+            1.0 means no obstacle detected within sensor range; lower values
+            indicate a closer obstacle.
+        """
+        distances = np.ones(num_rays, dtype=np.float64)  # default = max range
+
+        if self.obstacle_labeled is None or not self.interior_labels:
+            return distances
+
+        W = H = self.raster_res
+
+        # Agent position in pixel space
+        ax, ay = self.latlon_to_px(lat, lon, center_point, stencil_radius_in_km, W, H)
+
+        # Maximum ray length in pixels
+        sensor_range_px = sensor_range_km / stencil_radius_in_km * (W / 2)
+
+        # Pre-compute the ray bearings (world-frame angles, clockwise from north)
+        if num_rays == 1:
+            bearings = np.array([0.5 * (min_bearing_deg + max_bearing_deg)])
+        else:
+            bearings = np.linspace(min_bearing_deg, max_bearing_deg, num_rays)
+
+        step_size = 1.0  # march in 1-pixel increments
+
+        for i, offset_deg in enumerate(bearings):
+            # Absolute bearing of this ray (clockwise from north)
+            ray_bearing = heading_deg + offset_deg
+            ray_rad = np.deg2rad(ray_bearing)
+
+            # Direction vector in pixel space (north = -y, east = +x)
+            dx = np.sin(ray_rad)
+            dy = -np.cos(ray_rad)
+
+            t = step_size
+            while t <= sensor_range_px:
+                px_x = int(round(ax + dx * t))
+                px_y = int(round(ay + dy * t))
+
+                # Out of raster bounds → no hit
+                if px_x < 0 or px_x >= W or px_y < 0 or px_y >= H:
+                    break
+
+                if self.obstacle_labeled[px_x, px_y] in self.interior_labels:
+                    distances[i] = t / sensor_range_px
+                    break
+
+                t += step_size
+
+        return distances
+
     def check_collision(self, lat, lon, center_point, stencil_radius_in_km):
         """Check if a lat/lon position is inside a void-obstacle region.
 
