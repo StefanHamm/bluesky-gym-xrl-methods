@@ -1,3 +1,4 @@
+from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
 import gymnasium as gym
 import numpy as np
 import pygame
@@ -99,47 +100,38 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
     def _render_frame(self):
         self._pre_render()
-        
         ac_idx = bs.traf.id2idx('KL001')
-    
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
-
         if self.plot_action_path and self.model is not None:
-             self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
-
+            self._draw_path(canvas, (255,0,0), self.path_coordinates, True)
         if self.point_to_waypoint:
-            observation_grid = self._compute_action_heatmap((self.unwrapped.wpt_lat,self.unwrapped.wpt_lon))
-            
+            observation_grid = self._compute_action_heatmap((self.unwrapped.wpt_lat, self.unwrapped.wpt_lon))
         else:
             observation_grid = self._compute_action_heatmap()
-        
-        self._draw_action_heatmap(canvas,observation_grid)
+        self._draw_action_heatmap(canvas, observation_grid)
         # draw ownship
-        
         ac_length = 8
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/self.max_distance)*self.unwrapped.window_width
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/self.max_distance)*self.unwrapped.window_width
-
-
+        ac_spd = bs.traf.cas[ac_idx]  # [m/s]
+        px_per_km = self.unwrapped.window_width / self.max_distance
+        # Ownship body
+        heading_end_x = np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length * px_per_km
+        heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length * px_per_km
         pygame.draw.line(canvas,
             (0,0,0),
-            (self.unwrapped.window_width/2-heading_end_x/2,self.unwrapped.window_height/2+heading_end_y/2),
-            ((self.unwrapped.window_width/2)+heading_end_x/2,(self.unwrapped.window_height/2)-heading_end_y/2),
-            width = 4
+            (self.unwrapped.window_width/2 - heading_end_x/2, self.unwrapped.window_height/2 + heading_end_y/2),
+            (self.unwrapped.window_width/2 + heading_end_x/2, self.unwrapped.window_height/2 - heading_end_y/2),
+            width=4
         )
-
-
-        # draw heading line
-        heading_length = 50
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/self.max_distance)*self.unwrapped.window_width
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/self.max_distance)*self.unwrapped.window_width
-
+        # draw heading line (projected position after HEADING_LENGTH_IN_SECONDS)
+        heading_length_km = (ac_spd * HEADING_LENGTH_IN_SECONDS) / 1000.0
+        heading_end_x = np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_km * px_per_km
+        heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_km * px_per_km
         pygame.draw.line(canvas,
             (0,0,0),
-            (self.unwrapped.window_width/2,self.unwrapped.window_height/2),
-            ((self.unwrapped.window_width/2)+heading_end_x,(self.unwrapped.window_height/2)-heading_end_y),
-            width = 1
+            (self.unwrapped.window_width/2, self.unwrapped.window_height/2),
+            (self.unwrapped.window_width/2 + heading_end_x, self.unwrapped.window_height/2 - heading_end_y),
+            width=1
         )
 
         # draw intruders
@@ -170,10 +162,14 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
             )
 
             # draw heading line
-            heading_length = 10
-            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/self.max_distance)*self.unwrapped.window_width
-            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/self.max_distance)*self.unwrapped.window_width
-
+            int_idx = bs.traf.id2idx(str(int_idx))
+            int_spd = bs.traf.cas[int_idx]
+            #print(int_spd,ac_spd)
+            heading_length_km = (int_spd * HEADING_LENGTH_IN_SECONDS) / 1000.0
+            heading_length_px = heading_length_km * px_per_km
+            #print(int_spd,ac_spd)
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px))
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px))
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),

@@ -1,3 +1,4 @@
+from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
 import gymnasium as gym
 import numpy as np
 import pygame
@@ -97,46 +98,39 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
         return x_pos,y_pos
         
     
-    def _render_frame(self,shap_values=None):
+    def _render_frame(self, shap_values=None):
         self._pre_render()
-                
-        ac_idx = bs.traf.id2idx('KL001')        
-                  
+        ac_idx = bs.traf.id2idx('KL001')
         max_distance = 200 # width of screen in km
-
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
-
         if self.plot_action_path and self.model is not None:
-            self._draw_path(canvas,(255,0,0),self.path_coordinates,True)
-           
-                
+            self._draw_path(canvas, (255,0,0), self.path_coordinates, True)
         if self.plot_safe_path and self.model is not None and self.safe_vals is not None:
-            self._draw_path(canvas,(255,0,255),self.safe_action_path)
-                
+            self._draw_path(canvas, (255,0,255), self.safe_action_path)
         # draw ownship
-        
         ac_length = 8
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.unwrapped.window_width
-
+        #ac_spd = AC_SPD  # [m/s]
+        px_per_km = self.unwrapped.window_width / max_distance
+        # Ownship body
+        heading_end_x = np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length * px_per_km
+        heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length * px_per_km
         pygame.draw.line(canvas,
             (0,0,0),
-            (self.unwrapped.window_width/2-heading_end_x/2,self.unwrapped.window_height/2+heading_end_y/2),
-            ((self.unwrapped.window_width/2)+heading_end_x/2,(self.unwrapped.window_height/2)-heading_end_y/2),
-            width = 4
+            (self.unwrapped.window_width/2 - heading_end_x/2, self.unwrapped.window_height/2 + heading_end_y/2),
+            (self.unwrapped.window_width/2 + heading_end_x/2, self.unwrapped.window_height/2 - heading_end_y/2),
+            width=4
         )
-
-        # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.unwrapped.window_width
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.unwrapped.window_width
-
+        # draw heading line (projected position after HEADING_LENGTH_IN_SECONDS)
+        ac_spd = bs.traf.cas[ac_idx]  # [m/s]
+        heading_length_km = (ac_spd * HEADING_LENGTH_IN_SECONDS) / 1000.0
+        heading_end_x = np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_km * px_per_km
+        heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_km * px_per_km
         pygame.draw.line(canvas,
             (0,0,0),
-            (self.unwrapped.window_width/2,self.unwrapped.window_height/2),
-            ((self.unwrapped.window_width/2)+heading_end_x,(self.unwrapped.window_height/2)-heading_end_y),
-            width = 1
+            (self.unwrapped.window_width/2, self.unwrapped.window_height/2),
+            (self.unwrapped.window_width/2 + heading_end_x, self.unwrapped.window_height/2 - heading_end_y),
+            width=1
         )
 
         # Plot additionally the intended_heading (baseline heading)
@@ -275,9 +269,13 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             )
 
             # draw heading line
-            heading_length = 10
-            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.unwrapped.window_width
-            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.unwrapped.window_width
+            int_spd = bs.traf.cas[int_idx]
+            heading_length_km = (int_spd * HEADING_LENGTH_IN_SECONDS) / 1000.0
+            heading_length_px = heading_length_km * px_per_km
+            #print(int_spd,ac_spd)
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px))
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px))
+            
 
             pygame.draw.line(canvas,
                 color,

@@ -9,6 +9,8 @@ import os
 import imageio
 import bluesky as bs
 
+from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
+
 
 # This wrapper creates saliency maps from the current observation
 #class SaliencyMapV1Wrapper(gym.ObservationWrapper):
@@ -144,10 +146,16 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
         )
 
         #Draw heading line
-        heading_length = 20
-        heading_end_x = np.sin(np.deg2rad(ac_hdg)) * heading_length
-        heading_end_y = np.cos(np.deg2rad(ac_hdg)) * heading_length
+        # heading_length = 20
+        # heading_end_x = np.sin(np.deg2rad(ac_hdg)) * heading_length
+        # heading_end_y = np.cos(np.deg2rad(ac_hdg)) * heading_length
 
+        ac_spd = bs.traf.cas[ac_idx]  # [m/s]
+        heading_length_km = (ac_spd * HEADING_LENGTH_IN_SECONDS) / 1000.0
+        heading_length_px = heading_length_km * self.px_per_km
+        heading_end_x = np.sin(np.deg2rad(ac_hdg)) * heading_length_px
+        heading_end_y = np.cos(np.deg2rad(ac_hdg)) * heading_length_px
+        
         pygame.draw.line(canvas,
                 (0,0,0),
                 (x_pos,y_pos),
@@ -330,10 +338,16 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             )
 
             # draw heading line
-            heading_length = 20
-            heading_end_x = np.sin(np.deg2rad(int_hdg)) * heading_length
-            heading_end_y = np.cos(np.deg2rad(int_hdg)) * heading_length
+            # heading_length = 20
+            # heading_end_x = np.sin(np.deg2rad(int_hdg)) * heading_length
+            # heading_end_y = np.cos(np.deg2rad(int_hdg)) * heading_length
             
+            int_spd = bs.traf.cas[int_idx]  # [m/s]
+            heading_length_km = (int_spd * HEADING_LENGTH_IN_SECONDS) / 1000.0
+            heading_length_px = heading_length_km * self.px_per_km
+            heading_end_x = np.sin(np.deg2rad(int_hdg)) * heading_length_px
+            heading_end_y = np.cos(np.deg2rad(int_hdg)) * heading_length_px
+            print(int_spd,ac_spd)
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),
