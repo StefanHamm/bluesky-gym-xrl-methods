@@ -40,7 +40,11 @@ NUM_WAYPOINTS = 1
 OBSTACLE_AREA_RANGE = (50, 1000) # In NM^2
 CENTER = (51.990426702297746, 4.376124857109851) # TU Delft AE Faculty coordinates
 
+
 MAX_DISTANCE = 350 # width of screen in km
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 class StaticObstacleEnv(gym.Env):
     """ 
@@ -364,6 +368,7 @@ class StaticObstacleEnv(gym.Env):
 
         px_per_km = self.window_width/MAX_DISTANCE
 
+
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
@@ -381,10 +386,13 @@ class StaticObstacleEnv(gym.Env):
             width = 5
         )
 
-        # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/MAX_DISTANCE)*self.window_width
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/MAX_DISTANCE)*self.window_width
+        # draw heading line with variable length depending on seconds into the future
+        PX2KM = self.window_width/MAX_DISTANCE
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/MAX_DISTANCE)*self.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/MAX_DISTANCE)*self.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),

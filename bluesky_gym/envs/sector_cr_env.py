@@ -23,8 +23,12 @@ ACTOR = "KL001"
 
 # Conversion factors
 NM2KM = 1.852
+
 MpS2Kt = 1.94384
 FL2M = 30.48
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 INTRUSION_DISTANCE = 5 # NM
 
@@ -360,6 +364,7 @@ class SectorCREnv(gym.Env):
         coords = [((self.window_width/2)+point[0]*NM2KM*px_per_km, (self.window_height/2)-point[1]*NM2KM*px_per_km) for point in self.poly_points]
         pygame.draw.polygon(canvas, airspace_color, coords, width=2)
 
+
         # Draw ownship
         ac_idx = bs.traf.id2idx(ACTOR)
         ac_length = 10
@@ -378,20 +383,23 @@ class SectorCREnv(gym.Env):
             width = 4
         )
 
-        # Draw heading line
-        heading_length = 20
-        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * heading_length
-        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * heading_length
+        # Draw heading line with variable length depending on seconds into the future
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * px_per_km
+        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * heading_length_px
+        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * heading_length_px
 
         pygame.draw.line(canvas,
-                (0,0,0),
-                (x_pos,y_pos),
-                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
-                width = 1
+            (0,0,0),
+            (x_pos,y_pos),
+            ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+            width = 1
         )
 
         # Draw intruders
         ac_length = 3
+
 
         for i in range(self.num_ac-1):
             int_idx = i+1
@@ -418,10 +426,12 @@ class SectorCREnv(gym.Env):
                 width = 4
             )
 
-            # Draw heading line
-            heading_length = 20
-            heading_end_x = np.cos(np.deg2rad(int_hdg)) * heading_length
-            heading_end_y = np.sin(np.deg2rad(int_hdg)) * heading_length
+            # Draw heading line with variable length depending on seconds into the future
+            int_spd = bs.traf.cas[int_idx] # m/s
+            heading_length_km = int_spd/1000 * HEADING_LENGTH_IN_SECONDS
+            heading_length_px = heading_length_km * px_per_km
+            heading_end_x = np.cos(np.deg2rad(int_hdg)) * heading_length_px
+            heading_end_y = np.sin(np.deg2rad(int_hdg)) * heading_length_px
 
             pygame.draw.line(canvas,
                 color,
