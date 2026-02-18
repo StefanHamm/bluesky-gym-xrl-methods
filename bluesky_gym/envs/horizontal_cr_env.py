@@ -29,6 +29,8 @@ NM2KM = 1.852
 
 ACTION_FREQUENCY = 10
 
+HEADING_LENGTH_IN_SECONDS = 240 # The line will represent where the plane will be in 240 seconds if it keeps its current heading, this is just for visualization purposes
+
 class HorizontalCREnv(gym.Env):
     """ 
     Horizontal Conflict Resolution Environment
@@ -310,9 +312,12 @@ class HorizontalCREnv(gym.Env):
         )
 
         # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        PX2KM = self.window_width/max_distance
+        ac_spd = bs.traf.cas[ac_idx] #m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        headling_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * headling_length_px)/max_distance)*self.window_width
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * headling_length_px)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),
@@ -349,9 +354,10 @@ class HorizontalCREnv(gym.Env):
             )
 
             # draw heading line
-            heading_length = 10
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
+            heading_length_km = bs.traf.cas[int_idx]/1000 * HEADING_LENGTH_IN_SECONDS
+            heading_length_px = heading_length_km * PX2KM
+            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px)/max_distance)*self.window_width
+            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px)/max_distance)*self.window_width
 
             pygame.draw.line(canvas,
                 color,
@@ -404,3 +410,12 @@ class HorizontalCREnv(gym.Env):
         
     def close(self):
         bs.stack.stack('quit')
+        
+if __name__ == "__main__":
+    env = HorizontalCREnv(render_mode="human")
+    obs, info = env.reset()
+    for _ in range(1000):
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
+        if terminated or truncated:
+            obs, info = env.reset()

@@ -17,7 +17,11 @@ NUM_WAYPOINTS = 5
 REACH_REWARD = 1
 AC_SPD = 150
 
+
 D_HEADING = 45
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 ACTION_FREQUENCY = 10
 
@@ -241,6 +245,7 @@ class PlanWaypointEnv(gym.Env):
         canvas = pygame.Surface(self.window_size)
         canvas.fill((135,206,235))
 
+
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
@@ -254,10 +259,13 @@ class PlanWaypointEnv(gym.Env):
             width = 4
         )
 
-        # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        # draw heading line with variable length depending on seconds into the future
+        PX2KM = self.window_width/max_distance
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/max_distance)*self.window_width
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),

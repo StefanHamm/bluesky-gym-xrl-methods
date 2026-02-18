@@ -30,9 +30,13 @@ D_SPEED = 20
 AC_SPD = 100
 
 NM2KM = 1.852
+
 MpS2Kt = 1.94384
 
 ACTION_FREQUENCY = 10
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 NUM_AC = 20
 NUM_AC_STATE = 5
@@ -369,6 +373,7 @@ class MergeEnv(gym.Env):
         width = 4
         )
 
+
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
@@ -385,10 +390,13 @@ class MergeEnv(gym.Env):
             width = 4
         )
 
-        # draw heading line
-        heading_length = 10
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        # draw heading line with variable length depending on seconds into the future
+        PX2KM = self.window_width/max_distance
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/max_distance)*self.window_width
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/max_distance)*self.window_width
 
         pygame.draw.line(canvas,
             (0,0,0),
@@ -399,6 +407,7 @@ class MergeEnv(gym.Env):
 
         # draw intruders
         ac_length = 3
+
 
         for i in range(1,NUM_AC):
             int_idx = i
@@ -426,10 +435,12 @@ class MergeEnv(gym.Env):
                 width = 4
             )
 
-            # draw heading line
-            heading_length = 10
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
+            # draw heading line with variable length depending on seconds into the future
+            int_spd = bs.traf.cas[int_idx] # m/s
+            heading_length_km = int_spd/1000 * HEADING_LENGTH_IN_SECONDS
+            heading_length_px = heading_length_km * PX2KM
+            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px)/max_distance)*self.window_width
+            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px)/max_distance)*self.window_width
 
             pygame.draw.line(canvas,
                 color,
