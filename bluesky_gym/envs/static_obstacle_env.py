@@ -391,9 +391,8 @@ class StaticObstacleEnv(gym.Env):
         ac_spd = bs.traf.cas[ac_idx] # m/s
         heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
         heading_length_px = heading_length_km * PX2KM
-        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/MAX_DISTANCE)*self.window_width
-        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/MAX_DISTANCE)*self.window_width
-
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
         pygame.draw.line(canvas,
             (0,0,0),
             (x_actor,y_actor),

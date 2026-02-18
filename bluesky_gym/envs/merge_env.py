@@ -395,9 +395,8 @@ class MergeEnv(gym.Env):
         ac_spd = bs.traf.cas[ac_idx] # m/s
         heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
         heading_length_px = heading_length_km * PX2KM
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px)/max_distance)*self.window_width
-
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
         pygame.draw.line(canvas,
             (0,0,0),
             (x_pos,y_pos),
@@ -439,9 +438,8 @@ class MergeEnv(gym.Env):
             int_spd = bs.traf.cas[int_idx] # m/s
             heading_length_km = int_spd/1000 * HEADING_LENGTH_IN_SECONDS
             heading_length_px = heading_length_km * PX2KM
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px)/max_distance)*self.window_width
-
+            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px))
+            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px))
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),
