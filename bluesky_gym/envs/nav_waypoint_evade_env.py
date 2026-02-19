@@ -16,15 +16,16 @@ SENSOR_RANGE = 200 #km
 
 AIRWAY_WIDTH = 8 # NM
 
-DEBUG = False
+DEBUG = True
 
 
 # REWARDS
-REACH_REWARD = 5
-DRIFT_PENALTY = -0.5
-ALTITUDE_PENALTY = -1.5 # altitude higher penalty than drift since more fuel cost
+OVERALL_PROGRESS_REWARD = 100 # the reward the agents get for completing the rout, minus the reward it already received
+REACH_REWARD = 2
+DRIFT_PENALTY = -0.2
+ALTITUDE_PENALTY = -0.4 # altitude higher penalty than drift since more fuel cost
 INTRUSION_PENALTY = -4
-CORRIDOR_LEAVE_PENALTY = -1
+CORRIDOR_LEAVE_PENALTY = -0.5
 OBSTACLE_PENALTY = -5
 CRASH_PENALTY = -100
 
@@ -512,7 +513,7 @@ class NavWaypointEvadeEnv(gym.Env):
         
         if self.current_passed_waypoint_idx == len(self.agent_nav_path)-1:
             # give a big reward for reaching the final waypoint
-            reach_reward += REACH_REWARD * 5
+            reach_reward += OVERALL_PROGRESS_REWARD - (self.path_length-1) * REACH_REWARD
             terminated = True
         
         reward = reach_reward + drift_penalty + corridor_penalty + intrusion_penalty + altitude_penalty + obstacle_penalty
@@ -697,7 +698,9 @@ class NavWaypointEvadeEnv(gym.Env):
         self._spawn_agent()
         self._spawn_intruders()
         self.path_length = len(self.agent_nav_path)
+        
         if DEBUG:
+            print(f"Agent path with {len(self.agent_nav_path)} waypoints")
             for i in self.intruder_paths:
                 print(f"Intruder path with {len(i)} waypoints")
         if self.render_mode == "human":
@@ -1310,7 +1313,7 @@ if __name__ == "__main__":
         
         i=i+1
         # input the action using arrow keys increase or decrease heading by 10 degrees
-        print(i)
+        #print(i)
         for event in pygame.event.get():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_LEFT:
@@ -1329,7 +1332,8 @@ if __name__ == "__main__":
                     heading_action = 0
                     
         _, reward, terminated, _, _ = env.step([heading_action, altitude_action])
-        print(reward)
+        #print(reward)
+        print(i)
         if terminated:
             print("Episode terminated, resetting environment.")
             env.reset()
