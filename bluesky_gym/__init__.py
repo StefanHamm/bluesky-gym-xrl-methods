@@ -62,3 +62,9 @@ def register_envs():
         entry_point="bluesky_gym.envs.plan_waypoint_evade_env:PlanWaypointEvadeEnv",
         max_episode_steps=900,
     )
+    
+    register(
+        id="NavWaypointEvadeEnv-v0",
+        entry_point="bluesky_gym.envs.nav_waypoint_evade_env:NavWaypointEvadeEnv",
+        max_episode_steps = 200
+    )

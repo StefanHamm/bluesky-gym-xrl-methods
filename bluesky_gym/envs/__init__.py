@@ -7,3 +7,4 @@ from bluesky_gym.envs.merge_env import *
 from bluesky_gym.envs.sector_cr_env import *
 from bluesky_gym.envs.free_flight_env import *
 from bluesky_gym.envs.plan_waypoint_evade_env import *
+from bluesky_gym.envs.nav_waypoint_evade_env import *
