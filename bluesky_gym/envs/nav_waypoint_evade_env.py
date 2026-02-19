@@ -16,7 +16,7 @@ SENSOR_RANGE = 200 #km
 
 AIRWAY_WIDTH = 8 # NM
 
-DEBUG = True
+DEBUG = False
 
 
 # REWARDS
@@ -648,8 +648,15 @@ class NavWaypointEvadeEnv(gym.Env):
         self.face_obstacles = []
         self.obstacle_rasterizer = ObstacleRasterizer()
         
-        #info vars
-        self.timestep =0
+        #info variables
+        self.drift_mean = 0 #averaged using running mean method
+        self.crash = 0
+        self.intrusion_count = 0
+        self.corridor_leave_mean= 0 #averaged using running mean method
+        self.obstacle_intrusion_count = 0
+        self.waypoint_reached_count = 0
+        self.path_length = 0
+        self.timestep = 0
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
