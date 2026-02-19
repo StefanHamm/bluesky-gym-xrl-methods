@@ -2,7 +2,7 @@ import gymnasium as gym
 from stable_baselines3 import SAC,TD3,DDPG,PPO
 import bluesky_gym
 import numpy as np
-from src.XRL.moeAgent.controlEvade import ThresholdGating, BlendingGating
+from src.XRL.moeAgent.controlEvade import ThresholdGating, BlendingGating, FatigueBlendingGating, PredictiveShieldingGating
 from bluesky_gym.envs.free_flight_env import SENSOR_RANGE
 from bluesky_gym.utils.constants import NM2KM
 
@@ -71,16 +71,38 @@ if __name__ == "__main__":
     
     
  
-#     gated_model = BlendingGating(
+    gated_model = BlendingGating(
+    controlModel=control_model, 
+    evadeModel=evade_model,
+    controlKeys=control_keywords,
+    evadeKeys=evade_keywords,
+    min_val=min_normed,  # sensor range is 250 NM
+    max_val=max_normed, 
+    metric_extractor=metric_extractor
+)
+    
+#     gated_model = FatigueBlendingGating(
 #     controlModel=control_model, 
 #     evadeModel=evade_model,
 #     controlKeys=control_keywords,
 #     evadeKeys=evade_keywords,
 #     min_val=min_normed,  # sensor range is 250 NM
 #     max_val=max_normed, 
+#     fatigue_rate=0.005,
+#     max_fatigue=0.3,
 #     metric_extractor=metric_extractor
 # )
-    
+
+    gated_model = PredictiveShieldingGating(
+    controlModel=control_model, 
+    evadeModel=evade_model,
+    controlKeys=control_keywords,
+    evadeKeys=evade_keywords,
+    number_of_future_steps=240, # lookahead in seconds since step is 1 second
+    number_intrusor_aircraft=5,
+    intrusion_distance_nm=5,
+    alpha_update_interval=5 # every n steps the future prediction is performed
+)
     
     episodes = 10
     for ep in range(episodes):

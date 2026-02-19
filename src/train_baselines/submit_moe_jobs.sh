@@ -25,13 +25,10 @@ echo "Running Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Environment Index: $ENV_IDX"
 echo "Algorithm Index: $ALGO_IDX"
 
-JOBDIR="logs/${SLURM_ARRAY_JOB_ID}"
-mkdir -p $JOBDIR
-
 
 #making workdir for each job
 WORKDIR="workdirs/job_${SLURM_ARRAY_TASK_ID}_env${ENV_IDX}_algo${ALGO_IDX}"
 mkdir -p $WORKDIR
 
 # Run the python script with the specific indices
-python src/train_baselines/train_moe_envs.py --env_idx $ENV_IDX --algo_idx $ALGO_IDX --num_cpu $SLURM_CPUS_PER_TASK --total_timesteps $TOTAL_TIMESTEPS --workdir $WORKDIR --jobdir $JOBDIR --jobid $SLURM_ARRAY_JOB_ID --make_vec_env
+python src/train_baselines/train_moe_envs.py --env_idx $ENV_IDX --algo_idx $ALGO_IDX --num_cpu $SLURM_CPUS_PER_TASK --total_timesteps $TOTAL_TIMESTEPS --workdir $WORKDIR --jobid $SLURM_ARRAY_JOB_ID --make_vec_env

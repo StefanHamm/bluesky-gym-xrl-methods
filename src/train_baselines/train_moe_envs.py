@@ -71,7 +71,6 @@ if __name__ == "__main__":
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
     parser.add_argument("--workdir", type=str, default=None, help="Working directory for BlueSky sim")
     parser.add_argument("--make_vec_env", action='store_true', help="Use vectorized environment")
-    parser.add_argument("--jobdir", type=str, default=None, help="Job directory for logs")
     parser.add_argument("--jobid", type=str, default=None, help="Job identifier")
     parser.add_argument("--save_best_model", action='store_true', help="Save best model during training")
     parser.add_argument("--model_seed", type=int, default=42, help="Random seed for model")
@@ -98,7 +97,7 @@ if __name__ == "__main__":
         suffix = "singleEnv"
 
     # 3. Run Training (No loops here anymore!)
-    log_dir = f'./{args.jobdir}/{env_name}/'
+    log_dir = f'./logs/{args.jobid}/{env_name}/'
     file_name = f'{env_name}_{str(algorithm.__name__)}_{suffix}_baseline'
     log_file_path = os.path.join(log_dir, file_name)
     

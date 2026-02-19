@@ -31,7 +31,7 @@ def set_global_seed(seed):
 bluesky_gym.register_envs()
 
 keywords_mapping = {
-    "NavWaypointEvadeEnv-v0": [],
+    "NavWaypointEvadeEnv-v0": ("drift_mean","corridor_leave_mean","intrusion_count","obstacle_intrusion_count","waypoint_reached_count","path_length","crash"),
     # Add more mappings for other environments as needed
 }
 
@@ -62,7 +62,6 @@ if __name__ == "__main__":
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
     parser.add_argument("--workdir", type=str, default=None, help="Working directory for BlueSky sim")
     parser.add_argument("--make_vec_env", action='store_true', help="Use vectorized environment")
-    parser.add_argument("--jobdir", type=str, default=None, help="Job directory for logs")
     parser.add_argument("--jobid", type=str, default=None, help="Job identifier")
     parser.add_argument("--save_best_model", action='store_true', help="Save best model during training")
     parser.add_argument("--model_seed", type=int, default=42, help="Random seed for model")
@@ -86,9 +85,11 @@ if __name__ == "__main__":
     else:
         suffix = "singleEnv"
 
-    log_dir = f'./{args.jobdir}/{ENV_NAME}/'
+    log_dir = f'./logs/{args.jobid}/{ENV_NAME}/'
     file_name = f'{ENV_NAME}_{str(algorithm.__name__)}_{suffix}_baseline'
     log_file_path = os.path.join(log_dir, file_name)
+    # create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
 
     if TRAIN:
         if args.make_vec_env:

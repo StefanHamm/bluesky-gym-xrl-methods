@@ -4,6 +4,8 @@ import pygame
 import bluesky as bs
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
+from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
+
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -312,9 +314,15 @@ class PlanWaypointEnvV2(gym.Env):
         )
 
         # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        ac_spd = bs.traf.cas[ac_idx]
+        km2px = self.window_width / max_distance
+        heading_length_km = HEADING_LENGTH_IN_SECONDS * ac_spd / 1000
+        heading_length_px = heading_length_km * km2px
+        
+        
+        heading_end_x = np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
+        heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
+
 
         pygame.draw.line(canvas,
             (0,0,0),
