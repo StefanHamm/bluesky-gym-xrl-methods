@@ -31,7 +31,15 @@ def set_global_seed(seed):
 bluesky_gym.register_envs()
 
 keywords_mapping = {
-    "NavWaypointEvadeEnv-v0": [],
+    "NavWaypointEvadeEnv-v0": [
+        "drift_mean",
+        "corridor_leave_mean",
+        "intrusion_count",
+        "obstacle_intrusion_count",
+        "waypoint_reached_count",
+        "path_length",
+        "crash"
+    ],
     # Add more mappings for other environments as needed
 }
 
@@ -56,7 +64,6 @@ if __name__ == "__main__":
     global env_name
     # 1. Parse Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_idx", type=int, default=0, help="Index of environment in all_envs list")
     parser.add_argument("--algo_idx", type=int, default=0, help="Index of algorithm in algorithms list")
     parser.add_argument("--num_cpu", type=int, default=2, help="Number of CPUs to use")
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
