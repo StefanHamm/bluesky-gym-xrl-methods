@@ -111,6 +111,6 @@ if __name__ == "__main__":
 
         policy_type = "MultiInputPolicy"
         model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed,device="cuda" if torch.cuda.is_available() else "cpu")
-        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=True)
+        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=False)
         model.save(f"models/{args.jobid}/{ENV_NAME}/{ENV_NAME}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         env.close()
