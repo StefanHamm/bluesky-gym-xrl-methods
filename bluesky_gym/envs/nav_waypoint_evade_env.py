@@ -192,7 +192,7 @@ class NavWaypointEvadeEnv(gym.Env):
             bs.init(mode='sim', detached=True,workdir=workdir)
 
         # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        #bs.scr = ScreenDummy()
         bs.stack.stack('DT 1;FF')
         if DEBUG:
         # Only consider nodes with 'pos' attribute for min/max calculations
@@ -596,8 +596,7 @@ class NavWaypointEvadeEnv(gym.Env):
         bs.stack.stack(f"HDG KL001 {action_hdg}")
         
         discrete_action = int(np.round(action[1])) # round to nearest integer to get discrete FL step change
-        shifted_action = discrete_action - ALTITUDE_STEPS # shift from 0,.., n to -1/2n,..., 0,..., 1/2n
-        target_altitude = FLIGHT_LEVEL_M + shifted_action * D_ALTITUDE
+        target_altitude = FLIGHT_LEVEL_M + discrete_action * D_ALTITUDE
         
         ac_idx = bs.traf.id2idx('KL001')
         
@@ -1288,7 +1287,7 @@ class NavWaypointEvadeEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEvadeEnv(render_mode="human",window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
+    env = NavWaypointEvadeEnv(window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
     env.metadata["render_fps"] = 20
     env.reset(seed=48)
     env.reset()
@@ -1338,9 +1337,13 @@ if __name__ == "__main__":
                 if event.key in [pygame.K_LEFT, pygame.K_RIGHT]:
                     heading_action = 0
                     
-        _, reward, terminated, _, _ = env.step([heading_action, altitude_action])
-        #print(reward)
+                    
         print(i)
+        
+        
+        _, reward, terminated, _, _ = env.step([heading_action, altitude_action-4])
+        #print(reward)
+        #print(i)
         if terminated:
             print("Episode terminated, resetting environment.")
             env.reset()
