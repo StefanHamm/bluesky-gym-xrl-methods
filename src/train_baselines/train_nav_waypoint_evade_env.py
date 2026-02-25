@@ -46,14 +46,12 @@ keywords_mapping = {
 
 ENV_NAME = "NavWaypointEvadeEnv-v0"
 ALGORITHMS = [SAC, PPO, TD3, DDPG, A2C]
-dir_int = 0
+
 def make_env():
-    global dir_int
+
     if args.workdir:
-        new_dir = os.path.join(args.workdir, f"run_{dir_int}")
-        os.makedirs(new_dir, exist_ok=True)
-        dir_int += 1
-        env = gym.make(ENV_NAME, render_mode=None, workdir=new_dir)
+        env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir)
+        sys.stdout.flush()
         return env
     else:
         env = gym.make(ENV_NAME, render_mode=None)
@@ -81,6 +79,18 @@ if __name__ == "__main__":
     parser.add_argument("--env_seed", type=int, default=0, help="Random seed for environment")
     parser.add_argument("--global_seed",type=int,default=42 , help="Set global random seed, for randomness that may be outside model/env")
     args = parser.parse_args()
+
+
+    #output parsed arguments for logging
+    print(f"Algorithm Index: {args.algo_idx}")
+    print(f"Number of CPUs: {args.num_cpu}")
+    print(f"Total Timesteps: {args.total_timesteps}")
+    print(f"Working Directory: {args.workdir}")
+    print(f"Use Vectorized Environment: {args.make_vec_env}")
+    print(f"Job ID: {args.jobid}")
+    print(f"Save Best Model: {args.save_best_model}")
+    print(f"Model Seed: {args.model_seed}")
+    print(f"Environment Seed: {args.env_seed}")
 
     set_global_seed(args.global_seed)
     # 2. Select specific config
