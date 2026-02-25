@@ -29,7 +29,7 @@ WORKDIR="workdirs/job_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}_algo${ALGO_ID
 mkdir -p $WORKDIR
 
 # Run the python script with the specific indices
-python src/train_baselines/train_nav_waypoint_evade_env.py --algo_idx $ALGO_IDX --num_cpu $SLURM_CPUS_PER_TASK --total_timesteps $TOTAL_TIMESTEPS --workdir $WORKDIR --jobid $SLURM_ARRAY_JOB_ID --jobdir logs/${SLURM_ARRAY_JOB_ID} --make_vec_env
+python src/train_baselines/train_nav_waypoint_evade_env.py --algo_idx $ALGO_IDX --num_cpu $SLURM_CPUS_PER_TASK --total_timesteps $TOTAL_TIMESTEPS --workdir $WORKDIR --jobid $SLURM_ARRAY_JOB_ID --make_vec_env
 
 #cleanup workdir after training
 rm -rf $WORKDIR

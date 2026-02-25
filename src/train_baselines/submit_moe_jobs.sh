@@ -2,11 +2,11 @@
 #SBATCH --job-name=blueskyBaselines
 #SBATCH --output=logs/slurm/slurm_%A_%a.out
 #SBATCH --error=logs/slurm/slurm_%A_%a.err
-#SBATCH --time=3:00:00
-#SBATCH --cpus-per-task=25 
+#SBATCH --time=10:00:00
+#SBATCH --cpus-per-task=20
 #SBATCH --mem=32G
-#SBATCH --array=0-14
-#SBATCH --partition=sunnycove
+#SBATCH --array=10-14
+#SBATCH --partition=broadwell
 # #SBATCH --gres=gpu:1
 # #SBATCH --partition=gpu
 
@@ -15,7 +15,7 @@ mkdir -p logs/${SLURM_ARRAY_JOB_ID}
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate blueskyGym
 
-TOTAL_TIMESTEPS=2000000
+TOTAL_TIMESTEPS=4000000
 
 ENV_IDX=$((SLURM_ARRAY_TASK_ID / 5))
 ALGO_IDX=$((SLURM_ARRAY_TASK_ID % 5))
