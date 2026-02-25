@@ -46,12 +46,18 @@ keywords_mapping = {
 
 ENV_NAME = "NavWaypointEvadeEnv-v0"
 ALGORITHMS = [SAC, PPO, TD3, DDPG, A2C]
-
-def make_env(logger_path=None):
+dir_int = 0
+def make_env():
+    global dir_int
     if args.workdir:
-        os.makedirs(args.workdir, exist_ok=True)
-    env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir)
-    return env
+        new_dir = os.path.join(args.workdir, f"run_{dir_int}")
+        os.makedirs(new_dir, exist_ok=True)
+        dir_int += 1
+        env = gym.make(ENV_NAME, render_mode=None, workdir=new_dir)
+        return env
+    else:
+        env = gym.make(ENV_NAME, render_mode=None)
+        return env
 
 
 
