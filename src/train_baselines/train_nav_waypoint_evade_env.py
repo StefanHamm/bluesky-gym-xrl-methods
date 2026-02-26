@@ -31,19 +31,33 @@ def set_global_seed(seed):
 bluesky_gym.register_envs()
 
 keywords_mapping = {
-    "NavWaypointEvadeEnv-v0": ("drift_mean","corridor_leave_mean","intrusion_count","obstacle_intrusion_count","waypoint_reached_count","path_length","crash"),
+    "NavWaypointEvadeEnv-v0": [
+        "drift_mean",
+        "corridor_leave_mean",
+        "intrusion_count",
+        "obstacle_intrusion_count",
+        "waypoint_reached_count",
+        "path_length",
+        "crash"
+    ],
     # Add more mappings for other environments as needed
 }
 
 
 ENV_NAME = "NavWaypointEvadeEnv-v0"
 ALGORITHMS = [SAC, PPO, TD3, DDPG, A2C]
-
-def make_env(logger_path=None):
+dir_int = 0
+def make_env():
+    global dir_int
     if args.workdir:
-        os.makedirs(args.workdir, exist_ok=True)
-    env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir)
-    return env
+        new_dir = os.path.join(args.workdir, f"run_{dir_int}")
+        os.makedirs(new_dir, exist_ok=True)
+        dir_int += 1
+        env = gym.make(ENV_NAME, render_mode=None, workdir=new_dir)
+        return env
+    else:
+        env = gym.make(ENV_NAME, render_mode=None)
+        return env
 
 
 
@@ -56,7 +70,6 @@ if __name__ == "__main__":
     global env_name
     # 1. Parse Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_idx", type=int, default=0, help="Index of environment in all_envs list")
     parser.add_argument("--algo_idx", type=int, default=0, help="Index of algorithm in algorithms list")
     parser.add_argument("--num_cpu", type=int, default=2, help="Number of CPUs to use")
     parser.add_argument("--total_timesteps", type=float, default=1e2, help="Total training timesteps")
@@ -104,6 +117,6 @@ if __name__ == "__main__":
 
         policy_type = "MultiInputPolicy"
         model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed,device="cuda" if torch.cuda.is_available() else "cpu")
-        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=True)
+        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=False)
         model.save(f"models/{args.jobid}/{ENV_NAME}/{ENV_NAME}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         env.close()
