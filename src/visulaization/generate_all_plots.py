@@ -47,7 +47,8 @@ if __name__ == "__main__":
         "PlanWaypointEvadeEnv-v0": ['waypoints_completed', 'total_intrusions'],
         "HorizontalCREnv-v0": ['total_intrusions', 'average_drift'],
         "SectorCREnv-v0": ['total_intrusions', 'average_drift'],
-        "StaticObstacleEnv-v0": ['crashed', 'average_drift', 'waypoint_reached']
+        "StaticObstacleEnv-v0": ['crashed', 'average_drift', 'waypoint_reached'],
+        "NavWaypointEvadeEnv-v0" : ["drift_mean","corridor_leave_mean","intrusion_count","obstacle_intrusion_count","waypoint_reached_count","path_length","crash"]
     }
 
     logDir = f"./logs/{job_id}/"

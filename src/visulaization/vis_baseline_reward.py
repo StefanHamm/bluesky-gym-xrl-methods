@@ -24,11 +24,25 @@ def plot_rewards(pd_reward, title, save_path, smoothing_info=""):
         y_values = group['total_reward_ma'] if 'total_reward_ma' in group.columns and not group['total_reward_ma'].isna().all() else group['total_reward']
         # Filter out NaNs for plotting
         valid_indices = ~y_values.isna()
-        ax.plot(group.loc[valid_indices, 'timesteps'], y_values[valid_indices], marker='', label=algorithm) # Removed marker='o' for cleaner line plot
+        ax.plot(group.loc[valid_indices, 'timesteps'], y_values[valid_indices], marker='', label=algorithm)
+
+    # Dynamically set x-ticks based on max timesteps
+    max_timestep = pd_reward['timesteps'].max()
+    if max_timestep <= 0:
+        xticks = [0]
+        xticklabels = ['0']
+    else:
+        step = 1e6
+        # Round to the closest million
+        rounded_max = int(round(max_timestep / step)) * int(step)
+        n_ticks = int(rounded_max // step)
+        xticks = [int(step * i) for i in range(1, n_ticks + 1)]
+        xticks = [0] + xticks
+        xticklabels = [str(int(x)) if x == 0 else f'{int(x/1e6)}e6' for x in xticks]
 
     ax.set_title(title)
-    ax.set_xticks([0,1e6,2e6])
-    ax.set_xticklabels(['0','1e6','2e6'])
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticklabels)
     ax.set_xlabel(f'Timesteps {smoothing_info}')
     ax.set_ylabel('Reward')
     ax.legend()
@@ -52,19 +66,32 @@ def plot_multipanel(env_data_dict, save_path, window_size_arg=-1, smoothing_perc
             y_values = group['total_reward_ma'] if 'total_reward_ma' in group.columns and not group['total_reward_ma'].isna().all() else group['total_reward']
             valid_indices = ~y_values.isna()
             ax.plot(group.loc[valid_indices, 'timesteps'], y_values[valid_indices], marker='', label=algorithm)
-        
+
         # Calculate smoothing info label
         avg_ws = int(df['window_size'].mean()) if 'window_size' in df.columns else 0
         if window_size_arg <= 0:
-             local_smoothing_info = f"(Smoothing: n={avg_ws} = {smoothing_percentage_arg:.1%})"
+            local_smoothing_info = f"(Smoothing: n={avg_ws} = {smoothing_percentage_arg:.1%})"
         else:
-             local_smoothing_info = f"(Smoothing: n={avg_ws})"
+            local_smoothing_info = f"(Smoothing: n={avg_ws})"
+
+        # Dynamically set x-ticks based on max timesteps for this env
+        max_timestep = df['timesteps'].max()
+        if max_timestep <= 0:
+            xticks = [0]
+            xticklabels = ['0']
+        else:
+            step = 1e6
+            rounded_max = int(round(max_timestep / step)) * int(step)
+            n_ticks = int(rounded_max // step)
+            xticks = [int(step * i) for i in range(1, n_ticks + 1)]
+            xticks = [0] + xticks
+            xticklabels = [str(int(x)) if x == 0 else f'{int(x/1e6)}e6' for x in xticks]
 
         ax.set_title(env_name)
         ax.set_xlabel(f'Timesteps {local_smoothing_info}')
         ax.set_ylabel('Reward')
-        ax.set_xticks([0, 1e6, 2e6])
-        ax.set_xticklabels(['0', '1e6', '2e6'])
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xticklabels)
         
     # Hide unused subplots
     for j in range(i + 1, len(axs)):

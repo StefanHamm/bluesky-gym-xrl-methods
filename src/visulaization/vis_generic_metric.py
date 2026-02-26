@@ -106,22 +106,32 @@ def plot_metric(pd_data, metric, title, save_path, smoothing_info=""):
     
     for algorithm, group in pd_data.groupby('algorithm'):
         group = group.sort_values('timesteps')
-        
         # Check if we have MA data, otherwise raw
         y_values = group[ma_col] if ma_col in group.columns and not group[ma_col].isna().all() else group[metric]
-        
         valid_indices = ~y_values.isna()
         if valid_indices.any():
             ax.plot(group.loc[valid_indices, 'timesteps'], y_values[valid_indices], marker='', label=algorithm)
 
+    # Dynamically set x-ticks based on rounded max timesteps
+    max_timestep = pd_data['timesteps'].max()
+    if max_timestep <= 0:
+        xticks = [0]
+        xticklabels = ['0']
+    else:
+        step = 1e6
+        rounded_max = int(round(max_timestep / step)) * int(step)
+        n_ticks = int(rounded_max // step)
+        xticks = [int(step * i) for i in range(1, n_ticks + 1)]
+        xticks = [0] + xticks
+        xticklabels = [str(int(x)) if x == 0 else f'{int(x/1e6)}e6' for x in xticks]
+
     ax.set_title(title)
-    # Customize ticks as in previous scripts (0, 1M, 2M)
-    ax.set_xticks([0,1e6,2e6])
-    ax.set_xticklabels(['0','1e6','2e6'])
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticklabels)
     ax.set_xlabel(f'Timesteps {smoothing_info}')
     ax.set_ylabel(metric.replace('_', ' ').title())
     ax.legend()
-    
+
     plt.savefig(save_path, format='pdf', bbox_inches='tight')
     plt.close(fig)
 

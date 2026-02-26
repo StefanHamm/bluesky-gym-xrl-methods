@@ -54,6 +54,8 @@ if __name__ == "__main__":
 	JOBID = "4901832"
 	NUM_EPISODES = 300
 	env_name = 'PlanWaypointEvadeEnv-v0'
+	
+	
 	control_modelpath = rf"models\{JOBID}\PlanWaypointEnv-v2\PlanWaypointEnv-v2_SAC_vecEnvLogs_baseline_model_mp.zip"
 	control_model = SAC.load(control_modelpath, device='cpu')
 	control_keywords = [
@@ -75,7 +77,9 @@ if __name__ == "__main__":
 		"sin_own_heading"
 	]
  
-	combined_modelpath = rf"models\{JOBID}\PlanWaypointEvadeEnv-v0\PlanWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
+	COMBINED_JOBID = "5124610"
+ 
+	combined_modelpath = rf"models\{COMBINED_JOBID}\PlanWaypointEvadeEnv-v0\PlanWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
 	combined_model = SAC.load(combined_modelpath, device='cpu')
  
 	min_nm = 7
@@ -209,7 +213,7 @@ if __name__ == "__main__":
 
 	# Save the plot under plots/JOBID
 	import os
-	save_dir = os.path.join("plots", JOBID)
+	save_dir = os.path.join("plots", "moeStratComparison")
 	os.makedirs(save_dir, exist_ok=True)
 	
 	# Export data using pandas
