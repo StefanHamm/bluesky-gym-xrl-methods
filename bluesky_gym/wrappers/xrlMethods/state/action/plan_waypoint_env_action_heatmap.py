@@ -5,7 +5,7 @@ import pygame
 from bluesky_gym.envs.plan_waypoint_env import D_HEADING,ACTION_FREQUENCY,DISTANCE_MARGIN
 import bluesky as bs
 from bluesky_gym.wrappers.xrlMethods.state.general_actionHeatmap import ActionHeatmapV1Wrapper
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+#from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 import os
 import imageio

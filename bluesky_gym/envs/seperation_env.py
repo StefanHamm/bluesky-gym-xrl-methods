@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+#from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -80,7 +80,7 @@ class HorizontalCREnv(gym.Env):
             bs.init(mode='sim', detached=True, workdir=workdir)
 
         # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+       # bs.scr = ScreenDummy()
         bs.stack.stack('DT 5;FF')
 
         # initialize values used for logging -> input in _get_info
