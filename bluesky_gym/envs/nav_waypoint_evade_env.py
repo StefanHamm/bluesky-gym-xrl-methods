@@ -1,7 +1,7 @@
 import numpy as np
 import pygame
 import bluesky as bs
-#from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+#
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.functions import load_graph
 from bluesky_gym.envs.common.obstacle_rasterizer import ObstacleRasterizer

@@ -5,7 +5,7 @@ import pygame
 from bluesky_gym.envs.sector_cr_env import AC_DENSITY_MU, AC_DENSITY_SIGMA, AC_DENSITY_RANGE, NUM_AC_STATE, ACTION_FREQUENCY, INTRUSION_DISTANCE, NM2KM, D_HEADING, AC_SPD,ACTOR,CENTER
 import bluesky as bs
 from bluesky_gym.wrappers.xrlMethods.state.general_actionHeatmap import ActionHeatmapV1Wrapper
-#from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+#
 import bluesky_gym.envs.common.functions as fn
 import os
 import imageio
