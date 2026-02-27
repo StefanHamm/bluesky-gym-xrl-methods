@@ -106,7 +106,7 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         if self.plot_action_path and self.model is not None:
             self._draw_path(canvas, (255,0,0), self.path_coordinates, True)
         if self.point_to_waypoint:
-            observation_grid = self._compute_action_heatmap((self.unwrapped.wpt_lat, self.unwrapped.wpt_lon))
+            observation_grid = self._compute_action_heatmap((self.unwrapped.wpt_lat[0], self.unwrapped.wpt_lon[0]))
         else:
             observation_grid = self._compute_action_heatmap()
         self._draw_action_heatmap(canvas, observation_grid)
