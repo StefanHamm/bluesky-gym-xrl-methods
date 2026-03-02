@@ -12,13 +12,14 @@ import numpy as np
 
 class xrlBaseWrapper(gym.Wrapper):
   
-    def __init__(self, env,export_gifs_path=None,fps=5):
+    def __init__(self, env,export_gifs_path=None,fps=5, xrl_rendering=True):
         """This is a base class for XRL wrappers and subclasses. This has common functinality like pre_render function, saving a frame, exporting a gif
 
         Args:
             env (gym.evn): env instance
             export_gifs_path (str, optional): String to export path, creates directories. Defaults to None.
             fps (int, optional): fps of the gif. Defaults to 5.
+            xrl_rendering (bool, optional): Turn on or off the XRL specific rendering. Defaults to True.
         """ 
         super().__init__(env)
         self.export_gifs_path = export_gifs_path
@@ -26,6 +27,7 @@ class xrlBaseWrapper(gym.Wrapper):
         self.fps = fps
         self.path_coordinates = []
         self.safe_action_path = []
+        self.xrl_rendering = xrl_rendering
         
     def _init_gif_folders(self):
         if self.export_gifs_path is not None:

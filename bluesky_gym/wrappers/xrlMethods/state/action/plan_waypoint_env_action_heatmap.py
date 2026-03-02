@@ -24,8 +24,8 @@ from bluesky_gym.utils.constants import NM2KM
 
 class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
     
-    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, plot_action_path=False, **kwargs):
-        super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model)
+    def __init__(self, env,debug=False, model=None, grid_size=5, grid_spacing_km=10, export_gifs_path=None, fps=5, plot_action_path=False, xrl_rendering=True, **kwargs):
+        super().__init__(env,debug,grid_size,grid_spacing_km,export_gifs_path, fps, model, xrl_rendering=xrl_rendering)
         self.max_distance = 200  # width of screen in km
         self.d_heading = D_HEADING
         
@@ -112,7 +112,8 @@ class ActionHeatmapWrapper(ActionHeatmapV1Wrapper):
         canvas = pygame.Surface(self.unwrapped.window_size)
         canvas.fill((135,206,235))
         observation_grid = self._compute_action_heatmap()
-        self._draw_action_heatmap(canvas, observation_grid)
+        if self.xrl_rendering:
+            self._draw_action_heatmap(canvas, observation_grid)
         if self.plot_action_path and self.model is not None:
             self._draw_path(canvas, (255,0,0), self.path_coordinates, True)
         # draw ownship

@@ -21,7 +21,7 @@ from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
 
 class SaliencySectorControl(SaliencyMapV1Wrapper):
     
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, plot_safe_path=False, model=None):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, plot_safe_path=False, model=None, xrl_rendering=True):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -34,8 +34,9 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             color_mode (str, optional): Color mode for saliency visualization. Use "quantitized", "clipped", or "scaled".
             plot_action_path (bool, optional): If True, plots the action path taken by the agent.
             plot_safe_path (bool, optional): If True, plots the safe action path based on safe values.
+            xrl_rendering (bool, optional): Turn on or off the XRL specific rendering. Defaults to True.
         """
-        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model)
+        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model, xrl_rendering=xrl_rendering)
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = INTRUSION_DISTANCE # same for this one
         self.num_intruders = NUM_AC_STATE
@@ -315,7 +316,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             y_pos = (self.unwrapped.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)*self.px_per_km)
             color = (80,80,80)
             
-            if shap_values is not None:
+            if shap_values is not None and self.xrl_rendering:
                 if int_idx in obs_rank_map:
                     rank = obs_rank_map[int_idx]
                     # draw a small number indicating intruder index
@@ -328,6 +329,11 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
                         control_baseline = shap_values.base_values[0][0]
                         color = self._get_saliency_color(control_shap,max_saliency,control_baseline)    
                         self._draw_intruder_speed_bar(canvas,speed_shap, x_pos, y_pos)
+            else:
+                 if separation < INTRUSION_DISTANCE:
+                    color = (220,20,60)
+                 else: 
+                    color = (80,80,80)
 
             
             pygame.draw.line(canvas,
@@ -377,7 +383,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
 
       
             
-        if shap_values is not None:
+        if shap_values is not None and self.xrl_rendering:
             shap_sums = np.sum(shap_values.values[0], axis=0)
 
             if self.DEBUG:

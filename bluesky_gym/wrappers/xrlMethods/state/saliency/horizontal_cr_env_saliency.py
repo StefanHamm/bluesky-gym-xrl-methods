@@ -15,7 +15,7 @@ import imageio
 
 class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
     
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, plot_safe_path=False, model=None):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, plot_safe_path=False, model=None, xrl_rendering=True):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -28,8 +28,9 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             color_mode (str, optional): Color mode for saliency visualization. Use "quantitized", "clipped", or "scaled".
             plot_action_path (bool, optional): If True, plots the action path taken by the agent.
             plot_safe_path (bool, optional): If True, plots the safe action path based on safe values.
+            xrl_rendering (bool, optional): Turn on or off the XRL specific rendering. Defaults to True.
         """
-        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model)
+        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model, xrl_rendering=xrl_rendering)
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = DISTANCE_MARGIN # same for this one
         self.num_intruders = NUM_INTRUDERS
@@ -134,7 +135,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
         )
 
         # Plot additionally the intended_heading (baseline heading)
-        if shap_values is not None and self.DEBUG:
+        if shap_values is not None and self.DEBUG and self.xrl_rendering:
 
                 
             base_val  = shap_values.base_values[0][0]
@@ -153,15 +154,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
                 width = 2
             )
 
-        if self.DEBUG:
-            #plot one intrude (now plotted relative to ownship heading)
-            color = (0,255,0)
-
-            # compute relative bearing from cos/sin (these encode ac_hdg - qdr)
-            rel_bearing_rad = np.arctan2(self.safe_vals["sin_difference_pos"], self.safe_vals["cos_difference_pos"])  # rel = ac_hdg - qdr
-            rel_bearing_deg = np.rad2deg(rel_bearing_rad)
-            # convert to global bearing from ownship to intruder
-            int_qdr = (bs.traf.hdg[ac_idx] - rel_bearing_deg) % 360
+        if self.DEBUG and self.xrl_rendering:
 
             # CORRECT DISTANCE CALCULATION:
             # safe_vals["dist"] is normalized (0-1), so we multiply by MAX to get KM
@@ -248,14 +241,17 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
             
             
             
-            if shap_values is not None:
+            if shap_values is not None and self.xrl_rendering:
                 
                 if i < len(shap_values.values[0]):
                     color = self._get_saliency_color(shap_values.values[0][i],np.max(np.abs(shap_values.values)),shap_values.base_values[0][0])
                 else:
                     color = (80,80,80)
             else:
-                color = (80,80,80)
+                 if int_dis < INTRUSION_DISTANCE:
+                    color = (220,20,60)
+                 else: 
+                    color = (80,80,80)
             
 
             x_pos = (self.unwrapped.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.unwrapped.window_width
@@ -337,7 +333,7 @@ class SaliencyHorizontalControl(SaliencyMapV1Wrapper):
 
       
             
-        if shap_values is not None:
+        if shap_values is not None and self.xrl_rendering:
             shap_sums = [float(np.sum(shap_values.values))]
             if self.DEBUG:
                 

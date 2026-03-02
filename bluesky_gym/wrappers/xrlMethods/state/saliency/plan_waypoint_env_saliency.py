@@ -13,7 +13,7 @@ import imageio
 from bluesky_gym.utils.constants import NM2KM
 
 class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, model=None):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped", plot_action_path=False, model=None, xrl_rendering=True):
         """
         Initialize the wrapper.
 
@@ -26,8 +26,9 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
             color_mode (str, optional): Color mode for saliency visualization. Use "quantitized", "clipped", or "scaled".
             plot_action_path (bool, optional): If True, plots the action path taken by the agent.
             plot_safe_path (bool, optional): If True, plots the safe action path based on safe values.
+            xrl_rendering (bool, optional): Turn on or off the XRL specific rendering. Defaults to True.
         """
-        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model)
+        super().__init__(env, safe_vals, debug, export_gifs_path, fps, color_mode, model, xrl_rendering=xrl_rendering)
         self.plot_action_path = plot_action_path
         self.action_frequency = ACTION_FREQUENCY #needs to be set since its used inside the general_saliency wrapper but is a global variable in all envs
         self.distance_margin = DISTANCE_MARGIN # same for this one
@@ -144,7 +145,7 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
             if reach:
                 color = (155,155,155)
             else:
-                if shap_values:
+                if shap_values and self.xrl_rendering:
                     color = self._get_saliency_color(shap_values.values[0][i],np.max(np.abs(shap_values.values)),shap_values.base_values[0][0])
                 else:
                     color = (255,255,255)
@@ -177,7 +178,7 @@ class SaliencyPlanWaypoint(SaliencyMapV1Wrapper):
 
       
             
-        if shap_values is not None:
+        if shap_values is not None and self.xrl_rendering:
             shap_sums = [float(np.sum(shap_values.values))]
             if self.DEBUG:
                 

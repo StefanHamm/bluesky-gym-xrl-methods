@@ -9,7 +9,7 @@ from bluesky_gym.envs.common.functions import get_point_at_distance
 
 class ActionHeatmapV1Wrapper(xrlBaseWrapper):
     
-    def __init__(self, env,debug=False,grid_size = None,grid_spacing_km=None, export_gifs_path=None, fps=5,model=None):
+    def __init__(self, env,debug=False,grid_size = None,grid_spacing_km=None, export_gifs_path=None, fps=5,model=None, xrl_rendering=True):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -21,7 +21,7 @@ class ActionHeatmapV1Wrapper(xrlBaseWrapper):
             model: The trained model used for action predictions.
 
         """
-        super().__init__(env,export_gifs_path,fps)
+        super().__init__(env,export_gifs_path,fps, xrl_rendering=xrl_rendering)
         # Grid parameters
         self.grid_size = grid_size
         self.grid_spacing_km = grid_spacing_km

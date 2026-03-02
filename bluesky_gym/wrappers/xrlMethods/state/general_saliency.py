@@ -9,7 +9,7 @@ import os
 
 class SaliencyMapV1Wrapper(xrlBaseWrapper):
     
-    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",model=None):
+    def __init__(self, env, safe_vals=None, debug=False, export_gifs_path=None, fps=5, color_mode="clipped",model=None, xrl_rendering=True):
         """
         Initialize the SaliencyHorizontalControl wrapper.
 
@@ -20,9 +20,10 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
             export_gifs_path (str, optional): Directory path to export GIFs of episodes. If None, GIFs are not saved.
             fps (int, optional): Frames per second for GIF export and rendering. Default is 5.
             color_mode (str, optional): Color mode for saliency visualization. Use "quantitized", "clipped", or "scaled".
+            xrl_rendering (bool, optional): Turn on or off the XRL specific rendering. Defaults to True.
 
         """
-        super().__init__(env,export_gifs_path,fps)
+        super().__init__(env,export_gifs_path,fps, xrl_rendering=xrl_rendering)
         
         #self.unwrapped.window_size=(1024,1024)
         self.last_action = None  
