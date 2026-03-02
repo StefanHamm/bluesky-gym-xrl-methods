@@ -347,7 +347,7 @@ class SaliencySectorControl(SaliencyMapV1Wrapper):
             heading_length_px = heading_length_km * self.px_per_km
             heading_end_x = np.sin(np.deg2rad(int_hdg)) * heading_length_px
             heading_end_y = np.cos(np.deg2rad(int_hdg)) * heading_length_px
-            print(int_spd,ac_spd)
+            #print(int_spd,ac_spd)
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),
