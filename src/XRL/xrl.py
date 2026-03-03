@@ -200,6 +200,8 @@ def main():
     method_dir = ""
     if args.moe:
         method_dir = f"moe/{args.gating_strategy}"
+        if args.disable_xrl_rendering:
+             method_dir += "/no_saliency"
     elif args.method == 'shap_safe_state':
         if args.debug:
             method_dir = "shapSafeStateDebug"
@@ -237,6 +239,8 @@ def main():
         # MoE composite envs need training=False for correct observation space
         env_kwargs["training"] = False
         env_kwargs["export_gifs_path"] = gif_folder
+        env_kwargs["moe_rendering"] = not args.disable_xrl_rendering
+  
     
     env = gym.make(args.env, **env_kwargs)
     env.metadata['render_fps'] = 800

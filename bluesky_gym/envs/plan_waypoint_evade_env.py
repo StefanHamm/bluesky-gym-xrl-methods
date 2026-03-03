@@ -42,7 +42,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
     # for BlueSkyGym probably only implement 1 for now together with None, which is default
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None,workdir=None,training = True,fps=5,export_gifs_path=None):
+    def __init__(self, render_mode=None,workdir=None,training = True,fps=5,export_gifs_path=None,moe_rendering=True):
         super().__init__(render_mode=render_mode, workdir=workdir,fps=fps,export_gifs_path=export_gifs_path)
         self.training = training
         
@@ -89,7 +89,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         """
         self.window = None
         self.clock = None
-        
+        self.moe_rendering = moe_rendering
         # initialize waypoints
         self.wpt_lat = []
         self.wpt_lon = []
@@ -372,8 +372,13 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
         heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
 
+        if self.moe_rendering:
+            evading_color = 255*self.evading
+        else:
+            evading_color = 0
+
         pygame.draw.line(canvas,
-            (255*self.evading,0,0),
+            (evading_color,0,0),
             (self.window_width/2,self.window_height/2),
             ((self.window_width/2)+heading_end_x,(self.window_height/2)-heading_end_y),
             width = 4
@@ -391,7 +396,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
 
         pygame.draw.line(canvas,
-            (255*self.evading,0,0),
+            (evading_color,0,0),
             (self.window_width/2,self.window_height/2),
             ((self.window_width/2)+heading_end_x,(self.window_height/2)-heading_end_y),
             width = 1
@@ -528,7 +533,8 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
             canvas.blit(title_text, (start_pos[0] + (length- title_w)//2, start_pos[1] - 20))
             
         startpos = (10, self.window_height - 40)
-        _draw_gradient_bar(canvas, startpos, 200, 20, horizontal=True)
+        if self.moe_rendering:
+            _draw_gradient_bar(canvas, startpos, 200, 20, horizontal=True)
 
         self._post_render(canvas)
         
