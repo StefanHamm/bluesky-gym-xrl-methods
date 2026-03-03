@@ -4,7 +4,7 @@ import pygame
 import bluesky as bs
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
-
+from bluesky_gym.envs.base_env import BaseEnv
 import gymnasium as gym
 from gymnasium import spaces
 
@@ -39,7 +39,7 @@ NM2KM = 1.852
 
 ACTION_FREQUENCY = 10
 
-class FreeFlightCREnv(gym.Env):
+class FreeFlightCREnv(BaseEnv):
     """ 
     Free Flight Conflict Resolution Environment
 
@@ -48,7 +48,8 @@ class FreeFlightCREnv(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None,workdir=None):
+    def __init__(self, render_mode=None,workdir=None,fps=5,export_gifs_path=None):
+        super().__init__(fps=fps,export_gifs_path=export_gifs_path)
         self.window_width = 512
         self.window_height = 512
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -108,8 +109,8 @@ class FreeFlightCREnv(gym.Env):
         observation = self._get_obs()
         info = self._get_info()
 
-        if self.render_mode == "human":
-            self._render_frame()
+        # if self.render_mode == "human":
+        #     self._render_frame()
 
         return observation, info
     

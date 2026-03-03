@@ -6,7 +6,7 @@ import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
 import gymnasium as gym
 from gymnasium import spaces
-
+import os
 NM2KM = 1.852
 
 SAFE_DISTANCE = 55 #NM
@@ -42,8 +42,8 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
     # for BlueSkyGym probably only implement 1 for now together with None, which is default
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None,workdir=None,training = True):
-        super().__init__(render_mode=render_mode, workdir=workdir)
+    def __init__(self, render_mode=None,workdir=None,training = True,fps=5,export_gifs_path=None):
+        super().__init__(render_mode=render_mode, workdir=workdir,fps=fps,export_gifs_path=export_gifs_path)
         self.training = training
         
         
@@ -98,6 +98,9 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         self.evading = 0
         self.respawn_intruder = np.array([False]*NUM_INTRUDERS)
         self.prev_intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
+        self.episode_counter = -1
+        
+        self.episode_frames_path =None
         
 
     def _generate_conflicts(self, acid = 'KL001'):
@@ -236,24 +239,34 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         bs.stack.stack(f"HDG KL001 {action[0]}")
 
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
+        
+        self.episode_counter+=1
+        if self.export_gifs_path is not None and self.episode_counter >0:
+            # create folder inside frames for this episode
+            self.episode_frames_path = os.path.join(self.frames_path, f"episode_{self.episode_counter}")
+            os.makedirs(self.episode_frames_path, exist_ok=True)
+        
+        
+        
+        
 
         self.total_reward = 0
+        
         self.waypoints_completed = 0
         self.last_action = np.array([0.0], dtype=np.float64)
-        
+        self.step_counter=0
         self.respawn_intruder = np.array([False]*NUM_INTRUDERS)
         self.intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
         self.prev_intruder_distance = np.array([np.inf]*NUM_INTRUDERS)
 
         #bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
-
+        super().reset(seed=seed)
         self._generate_waypoint()
         observation = self._get_obs()
         info = self._get_info()
 
-        if self.render_mode == "human":
-            self._render_frame()
+        # if self.render_mode == "human":
+        #     self._render_frame()
 
         return observation, info
     
@@ -263,9 +276,10 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
 
         self._get_action(action)
         self.last_action = action
+        self.step_counter +=1
         
         self.prev_intruder_distance = copy.deepcopy(self.intruder_distance)
-
+        self.frame_saved= False
         action_frequency = ACTION_FREQUENCY
         for i in range(action_frequency):
             bs.sim.step()
@@ -344,21 +358,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         self.evading = evading
 
     def _render_frame(self):
-        if self.window is None and self.render_mode == "human":
-            pygame.init()
-            pygame.display.init()
-            self.window = pygame.display.set_mode(self.window_size)
-
-        if self.clock is None and self.render_mode == "human":
-            self.clock = pygame.time.Clock()
-            
-            
-        #process pygame events to prevent "not responding" window
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.close()
-                exit()
-                return
+        self._pre_render()
 
         max_distance = 200 # width of screen in km
 
@@ -530,9 +530,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         startpos = (10, self.window_height - 40)
         _draw_gradient_bar(canvas, startpos, 200, 20, horizontal=True)
 
-        self.window.blit(canvas, canvas.get_rect())
-        pygame.display.update()
-        self.clock.tick(self.metadata["render_fps"])
+        self._post_render(canvas)
         
     def close(self):
         bs.stack.stack('quit')
