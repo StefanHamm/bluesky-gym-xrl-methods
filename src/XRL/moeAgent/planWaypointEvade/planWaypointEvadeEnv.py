@@ -93,16 +93,16 @@ if __name__ == "__main__":
 #     metric_extractor=metric_extractor
 # )
 
-    gated_model = PredictiveShieldingGating(
-    controlModel=control_model, 
-    evadeModel=evade_model,
-    controlKeys=control_keywords,
-    evadeKeys=evade_keywords,
-    number_of_future_steps=240, # lookahead in seconds since step is 1 second
-    number_intrusor_aircraft=5,
-    intrusion_distance_nm=5,
-    alpha_update_interval=5 # every n steps the future prediction is performed
-)
+#     gated_model = PredictiveShieldingGating(
+#     controlModel=control_model, 
+#     evadeModel=evade_model,
+#     controlKeys=control_keywords,
+#     evadeKeys=evade_keywords,
+#     number_of_future_steps=240, # lookahead in seconds since step is 1 second
+#     number_intrusor_aircraft=5,
+#     intrusion_distance_nm=5,
+#     alpha_update_interval=5 # every n steps the future prediction is performed
+# )
     
     episodes = 10
     for ep in range(episodes):
