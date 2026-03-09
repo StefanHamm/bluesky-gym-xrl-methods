@@ -18,13 +18,13 @@ import bluesky as bs
 print(bs.__file__)
 
 if __name__ == "__main__":
-    JOBID = "trainNavpointENV"
+    JOBID = "5124851"
     SEED = 42
     DEBUG = False
     # Initialize the environment and logger
-    #env_name = 'NavWaypointEvadeEnv-v0'
-    env_name ="PlanWaypointEnv"
-    spawnFactor = 2
+    env_name = 'NavWaypointEvadeEnv-v0'
+    #env_name ="PlanWaypointEnv"
+    #spawnFactor = 2
   
 
     if DEBUG:
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     env = gym.make(env_name,render_mode='human')
     env.reset(seed=SEED)
     
-    modelpath = r"models\trainNavpointENV\NavWaypointEvadeEnv-v0\NavWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
+    modelpath = rf"models\{JOBID}\NavWaypointEvadeEnv-v0\NavWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
     model = SAC.load(modelpath,device='cpu')
     
     #actionHeatmap = ActionHeatmapWrapper(env, model=model,draw_action_heatmap=True, grid_size=9, grid_spacing_km=5,export_gifs_path=gifFolder,plot_action_path=True)
