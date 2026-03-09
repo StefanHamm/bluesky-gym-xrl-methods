@@ -182,7 +182,7 @@ class NavWaypointEvadeEnv(gym.Env):
         
         # Example: heading continuous, altitude discrete (5 options)
         # Heading: -1 to 1
-        # Altitude: 0 to 4 (assuming 5 steps)
+        # Altitude: -2 to 2 (assuming 5 steps)
         low = np.array([-1.0, -ALTITUDE_STEPS], dtype=np.float32)
         high = np.array([1.0, ALTITUDE_STEPS], dtype=np.float32)
 
