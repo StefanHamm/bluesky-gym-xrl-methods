@@ -289,15 +289,30 @@ class NavWaypointEvadeEnv(gym.Env):
         
             self.intruder_distance.append(int_dis*NM2KM)
 
-            bearing = self.ac_hdg - int_qdr
+            bearing = int_qdr - self.ac_hdg
             bearing = fn.bound_angle_positive_negative_180(bearing)
 
             self.cos_bearing.append(np.cos(np.deg2rad(bearing)))
             self.sin_bearing.append(np.sin(np.deg2rad(bearing)))
 
-            heading_difference = bs.traf.hdg[ac_idx] - bs.traf.hdg[int_idx]
-            x_dif = - np.cos(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
-            y_dif = bs.traf.gs[ac_idx] - np.sin(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
+            # 1. Convert headings to radians
+            hdg_own_rad = np.deg2rad(bs.traf.hdg[ac_idx])
+            hdg_int_rad = np.deg2rad(bs.traf.hdg[int_idx])
+
+            # 2. Calculate global velocity vectors (X is East, Y is North)
+            v_own_x = bs.traf.gs[ac_idx] * np.sin(hdg_own_rad)
+            v_own_y = bs.traf.gs[ac_idx] * np.cos(hdg_own_rad)
+
+            v_int_x = bs.traf.gs[int_idx] * np.sin(hdg_int_rad)
+            v_int_y = bs.traf.gs[int_idx] * np.cos(hdg_int_rad)
+
+            # 3. Calculate global relative velocity (Intruder relative to Ownship)
+            rel_v_x_global = v_int_x - v_own_x
+            rel_v_y_global = v_int_y - v_own_y
+
+            # 4. Project onto ownship frame (Y_dif is forward speed, X_dif is lateral speed)
+            x_dif = rel_v_x_global * np.cos(hdg_own_rad) - rel_v_y_global * np.sin(hdg_own_rad)
+            y_dif = rel_v_x_global * np.sin(hdg_own_rad) + rel_v_y_global * np.cos(hdg_own_rad)
 
             self.x_difference_speed.append(x_dif)
             self.y_difference_speed.append(y_dif)
