@@ -1,0 +1,42 @@
+{
+  "config": "default_configs/08_0_central_europe_20190601_30_cap_enroute_1200_clustersize_30.json",
+  "ourairports": "ourairports/airports.csv",
+  "navdir": "test_navpoints",
+  "od_file": null,
+  "aircrafts_file": null,
+  "icao_only": true,
+  "airport_include": "LOWW,LOWI,LOWG,LOWL,LOWS,LOWK,LIPB,EDNY,EDDM,LZIB",
+  "criterion": "gabriel",
+  "max_edge_km": 100.0,
+  "out_dir": "unparsed_experiment_data/08-0-CENTRAL-EUROPE-2019-06-01--2019-06-30-CAP-ENROUTE-1200-CLUSTERSIZE-30/navgraph",
+  "neighbor_index": "balltree",
+  "progress_interval": 5,
+  "enforce_connected": "true",
+  "connectivity_method": "mst",
+  "centroid_knn": 12,
+  "flat_out": true,
+  "altitude": "0",
+  "altitude_unit": "fl",
+  "grid_navpoints": "false",
+  "grid_nx": 0,
+  "grid_ny": 0,
+  "grid_prefix": "GRID",
+  "grid_region_name": null,
+  "grid_bounds": null,
+  "grid_rect_filter": "true",
+  "resolved_out_dir": "/home/guests/abeiser/00_ATFCM_PROJECT/20260116_TMP_ASPDATAGENERATOR/ASPaeroFlow-DataGenerator/unparsed_experiment_data/08-0-CENTRAL-EUROPE-2019-06-01--2019-06-30-CAP-ENROUTE-1200-CLUSTERSIZE-30/navgraph",
+  "stats": {
+    "num_vertices_base": 985,
+    "num_vertices_layered": 985,
+    "num_edges_written": 1789,
+    "enforce_connected": true,
+    "altitude_levels_raw": [
+      0.0
+    ],
+    "altitude_levels_m": [
+      0.0
+    ],
+    "num_levels": 1,
+    "altitude_ref_m": 0.0
+  }
+}

@@ -19,7 +19,7 @@ print(bs.__file__)
 
 if __name__ == "__main__":
     JOBID = "5124851"
-    SEED = 42
+    SEED = 43
     DEBUG = False
     # Initialize the environment and logger
     env_name = 'NavWaypointEvadeEnv-v0'
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     else:
         gifFolder = f"./plots/{JOBID}/{env_name}/actionHeatmap/"
 
-    env = gym.make(env_name,render_mode='human')
+    env = gym.make(env_name,render_mode='human',window_width=1000,window_height=1000,plot_all_points = True,stencil_radius_in_km=400)
     env.reset(seed=SEED)
     
     modelpath = rf"models\{JOBID}\NavWaypointEvadeEnv-v0\NavWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
