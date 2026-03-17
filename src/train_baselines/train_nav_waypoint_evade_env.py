@@ -50,11 +50,11 @@ ALGORITHMS = [SAC, PPO, TD3, DDPG, A2C]
 def make_env():
 
     if args.workdir:
-        env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir)
+        env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir,stencil_radius_in_km=125)
         sys.stdout.flush()
         return env
     else:
-        env = gym.make(ENV_NAME, render_mode=None)
+        env = gym.make(ENV_NAME, render_mode=None,stencil_radius_in_km=125)
         return env
 
 
