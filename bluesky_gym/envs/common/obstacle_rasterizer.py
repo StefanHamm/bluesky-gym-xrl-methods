@@ -59,16 +59,32 @@ class ObstacleRasterizer:
 
     @staticmethod
     def px_to_latlon(px_x, px_y, center_point, stencil_radius_in_km, buf_w, buf_h):
-        """Reverse-project pixel (x, y) → (lat, lon)."""
-        dx = (px_x - buf_w / 2) / (buf_w / 2) * stencil_radius_in_km
-        dy = -(px_y - buf_h / 2) / (buf_h / 2) * stencil_radius_in_km
-        dist_km = np.sqrt(dx**2 + dy**2)
-        bearing = np.rad2deg(np.arctan2(dx, dy))
-        dist_nm = dist_km / NM2KM
-        lat, lon = bs.tools.geo.kwikpos(
-            center_point['lat'], center_point['lon'],
-            bearing, dist_nm)
-        return lat, lon
+        """Reverse-project pixel (x, y) -> (lat, lon) by exactly inverting kwikqdrdist."""
+        # 1. Calculate Cartesian offsets from the center in kilometers
+        dx_km = (px_x - buf_w / 2) / (buf_w / 2) * stencil_radius_in_km
+        dy_km = -(px_y - buf_h / 2) / (buf_h / 2) * stencil_radius_in_km
+        
+        # Earth radius in km (matching kwikqdrdist's 6371000 meters)
+        re_km = 6371.0 
+        
+        # 2. Reverse the latitude (Northing is not affected by longitude convergence)
+        dlat_rad = dy_km / re_km
+        lata = center_point['lat']
+        latb = lata + np.degrees(dlat_rad)
+        
+        # 3. Calculate the exact cavelat that kwikqdrdist would use for these two latitudes
+        cavelat = np.cos(np.radians(lata + latb) * 0.5)
+        cavelat = np.maximum(1e-6, cavelat) # Prevent division by zero near poles
+        
+        # 4. Reverse the longitude using the exact cavelat scale factor
+        dlon_rad = (dx_km / re_km) / cavelat
+        lona = center_point['lon']
+        lonb = lona + np.degrees(dlon_rad)
+        
+        # 5. Normalize longitude to wrap correctly between -180 and 180
+        lonb = ((lonb + 180) % 360) - 180
+        
+        return latb, lonb
 
     # --- boundary extraction ------------------------------------------------
 
@@ -139,10 +155,11 @@ class ObstacleRasterizer:
 
         W = H = self.raster_res
         # corridor half-width in pixels
-        corridor_half_px = max(1, int(
+
+        corridor_half_px = max(1, int(round(
             (airway_width_nm / 2.0 * NM2KM) /
-            stencil_radius_in_km * (W / 2)))
-        corridor_px = corridor_half_px * 2 + 1  # full diameter (odd)
+            stencil_radius_in_km * (W / 2))))
+        corridor_px = corridor_half_px * 2
 
         # ---- 1. Rasterize corridors onto a binary mask --------------------
         buf = pygame.Surface((W, H))

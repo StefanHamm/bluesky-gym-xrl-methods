@@ -39,7 +39,7 @@ CRASH_DISTANCE_HORIZONTAL = 0.1 #NM
 
 CRASH_DISTANCE_VERTICAL = 50 # m
 
-MIN_ROUTE_LENGTH = 9 #
+MIN_ROUTE_LENGTH = 4 #
 
 
 AC_SPD = 150 #m/s
@@ -182,7 +182,7 @@ class NavWaypointEvadeEnv(gym.Env):
         
         # Example: heading continuous, altitude discrete (5 options)
         # Heading: -1 to 1
-        # Altitude: 0 to 4 (assuming 5 steps)
+        # Altitude: -2 to 2 (assuming 5 steps)
         low = np.array([-1.0, -ALTITUDE_STEPS], dtype=np.float32)
         high = np.array([1.0, ALTITUDE_STEPS], dtype=np.float32)
 
@@ -223,7 +223,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.current_passed_waypoint_idx = 0
         self.bisector_lines = []
         self.used_node_ids = set()
-        self.obstacle_rasterizer = ObstacleRasterizer()
+        self.obstacle_rasterizer = ObstacleRasterizer(2000)
         
         self.timestep = 0
         
@@ -289,15 +289,30 @@ class NavWaypointEvadeEnv(gym.Env):
         
             self.intruder_distance.append(int_dis*NM2KM)
 
-            bearing = self.ac_hdg - int_qdr
+            bearing = int_qdr - self.ac_hdg
             bearing = fn.bound_angle_positive_negative_180(bearing)
 
             self.cos_bearing.append(np.cos(np.deg2rad(bearing)))
             self.sin_bearing.append(np.sin(np.deg2rad(bearing)))
 
-            heading_difference = bs.traf.hdg[ac_idx] - bs.traf.hdg[int_idx]
-            x_dif = - np.cos(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
-            y_dif = bs.traf.gs[ac_idx] - np.sin(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
+            # 1. Convert headings to radians
+            hdg_own_rad = np.deg2rad(bs.traf.hdg[ac_idx])
+            hdg_int_rad = np.deg2rad(bs.traf.hdg[int_idx])
+
+            # 2. Calculate global velocity vectors (X is East, Y is North)
+            v_own_x = bs.traf.gs[ac_idx] * np.sin(hdg_own_rad)
+            v_own_y = bs.traf.gs[ac_idx] * np.cos(hdg_own_rad)
+
+            v_int_x = bs.traf.gs[int_idx] * np.sin(hdg_int_rad)
+            v_int_y = bs.traf.gs[int_idx] * np.cos(hdg_int_rad)
+
+            # 3. Calculate global relative velocity (Intruder relative to Ownship)
+            rel_v_x_global = v_int_x - v_own_x
+            rel_v_y_global = v_int_y - v_own_y
+
+            # 4. Project onto ownship frame (Y_dif is forward speed, X_dif is lateral speed)
+            x_dif = rel_v_x_global * np.cos(hdg_own_rad) - rel_v_y_global * np.sin(hdg_own_rad)
+            y_dif = rel_v_x_global * np.sin(hdg_own_rad) + rel_v_y_global * np.cos(hdg_own_rad)
 
             self.x_difference_speed.append(x_dif)
             self.y_difference_speed.append(y_dif)
@@ -677,6 +692,7 @@ class NavWaypointEvadeEnv(gym.Env):
         )
         
         self.agent_nav_path = self._get_agent_nav_path(self.boundary_vertices)
+    
         self._calculate_all_bisector_lines()
         self.intruder_paths = []
         for _ in range(NUM_INTRUDERS-1):
@@ -836,6 +852,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 
             return path_data
         except nx.NetworkXNoPath:
+            print("NOT")
             return []
     
     def _get_boundary_vertices(self):
@@ -1287,9 +1304,11 @@ class NavWaypointEvadeEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEvadeEnv(window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
+    env = NavWaypointEvadeEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
     env.metadata["render_fps"] = 20
+
     env.reset(seed=48)
+    print("Reset")
     env.reset()
     # # We use env.np_random for consistency with the seeded environment
     # nodes_list = list(env.graph.nodes)
