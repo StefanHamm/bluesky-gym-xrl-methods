@@ -39,7 +39,7 @@ CRASH_DISTANCE_HORIZONTAL = 0.1 #NM
 
 CRASH_DISTANCE_VERTICAL = 50 # m
 
-MIN_ROUTE_LENGTH = 9 #
+MIN_ROUTE_LENGTH = 4 #
 
 
 AC_SPD = 150 #m/s
@@ -223,7 +223,7 @@ class NavWaypointEvadeEnv(gym.Env):
         self.current_passed_waypoint_idx = 0
         self.bisector_lines = []
         self.used_node_ids = set()
-        self.obstacle_rasterizer = ObstacleRasterizer()
+        self.obstacle_rasterizer = ObstacleRasterizer(2000)
         
         self.timestep = 0
         
@@ -692,6 +692,7 @@ class NavWaypointEvadeEnv(gym.Env):
         )
         
         self.agent_nav_path = self._get_agent_nav_path(self.boundary_vertices)
+    
         self._calculate_all_bisector_lines()
         self.intruder_paths = []
         for _ in range(NUM_INTRUDERS-1):
@@ -851,6 +852,7 @@ class NavWaypointEvadeEnv(gym.Env):
                 
             return path_data
         except nx.NetworkXNoPath:
+            print("NOT")
             return []
     
     def _get_boundary_vertices(self):
@@ -1302,9 +1304,11 @@ class NavWaypointEvadeEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = NavWaypointEvadeEnv(window_height=500,window_width=500,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
+    env = NavWaypointEvadeEnv(render_mode="human",window_height=1000,window_width=1000,stencil_radius_in_km=100,show_altitude_in_rendering=True,plot_all_points=True)
     env.metadata["render_fps"] = 20
+
     env.reset(seed=48)
+    print("Reset")
     env.reset()
     # # We use env.np_random for consistency with the seeded environment
     # nodes_list = list(env.graph.nodes)
