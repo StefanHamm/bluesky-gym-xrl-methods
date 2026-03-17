@@ -77,7 +77,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         bs.stack.stack('DT 1;FF')
 
         # initialize values used for logging -> input in _get_info
-        self.total_reward = 0
+        self.total_reward_child = 0
         self.waypoints_completed = 0
 
         """
@@ -169,7 +169,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         # but that should not be used by the agent for decision making, so used for logging and debugging purposes
         # for now just have 10, because it crashed if I gave none for some reason.
         return {
-            "total_reward": self.total_reward,
+            "total_reward_waypoint": self.total_reward_child,
             "waypoints_completed": self.waypoints_completed
         } | super()._get_info()
         
@@ -223,7 +223,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         smoothness_penalty = self._get_smoothness_penalty()
         
         total_reward = reach_reward + alive_penalty + smoothness_penalty + parent_reward
-        self.total_reward += total_reward
+        self.total_reward_child += total_reward
 
         if 0 in self.wpt_reach and not terminated:
             return total_reward, 0
@@ -250,7 +250,7 @@ class PlanWaypointEvadeEnv(FreeFlightCREnv):
         
         
 
-        self.total_reward = 0
+        self.total_reward_child = 0
         
         self.waypoints_completed = 0
         self.last_action = np.array([0.0], dtype=np.float64)

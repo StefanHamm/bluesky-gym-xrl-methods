@@ -28,10 +28,13 @@ def evaluate_strategy(env_name, model, episodes=100, use_gating=False, gating_mo
 		seed (int): Random seed.
 	"""
 	returns = []
+	waypoints = []
+	intrusions = []
 	import gymnasium as gym
 	env = gym.make(env_name, training= not use_gating) #removes the observation of heading for native model
 	for ep in tqdm(range(episodes), desc=desc, position=position, leave=True):
 		obs, info = env.reset(seed=seed+ep)
+
 		done = truncated = False
 		ep_return = 0
 		timestep = 0
@@ -43,18 +46,53 @@ def evaluate_strategy(env_name, model, episodes=100, use_gating=False, gating_mo
 			else:
 				action, _ = model.predict(obs, deterministic=True)
 			obs, reward, done, truncated, info = env.step(action)
+			
 			ep_return += reward
 			if timestep >= 900:
 				truncated = True
-		returns.append(ep_return)
 		
-	return np.median(returns), returns
+		returns.append(ep_return)
+		waypoints.append(info.get('waypoints_completed', 0))
+		intrusions.append(info.get('total_intrusions', 0))
+		
+	return np.median(returns), returns, waypoints, intrusions
+
+
+def styled_boxplot(ax, data, labels, colors, title, ylabel):
+	bp = ax.boxplot(
+		data,
+		patch_artist=True,
+		showmeans=True,
+		meanprops=dict(marker='D', markeredgecolor='black', markerfacecolor='white', markersize=7),
+		medianprops=dict(color='black', linewidth=2),
+		flierprops=dict(marker='o', markersize=3, alpha=0.4),
+		whiskerprops=dict(linewidth=1.5),
+		capprops=dict(linewidth=1.5),
+	)
+	for patch, color in zip(bp['boxes'], colors):
+		patch.set_facecolor(color)
+		patch.set_alpha(0.7)
+	for flier, color in zip(bp['fliers'], colors):
+		flier.set_markerfacecolor(color)
+		flier.set_markeredgecolor(color)
+	ax.set_xticks(range(1, len(labels) + 1))
+	ax.set_xticklabels(labels, rotation=20, ha='right')
+	ax.set_title(title)
+	ax.set_ylabel(ylabel)
+	ax.grid(True, linestyle='--', alpha=0.7)
+
+	from matplotlib.lines import Line2D
+	legend_elements = [
+		Line2D([0], [0], color='black', linewidth=2, label='Median'),
+		Line2D([0], [0], marker='D', color='w', markeredgecolor='black', markerfacecolor='white', markersize=7, label='Mean'),
+	]
+	ax.legend(handles=legend_elements, frameon=True)
+
 
 if __name__ == "__main__":
 	JOBID = "4901832"
-	NUM_EPISODES = 300
+	NUM_EPISODES = 150
 	env_name = 'PlanWaypointEvadeEnv-v0'
-	
 	
 	control_modelpath = rf"models\{JOBID}\PlanWaypointEnv-v2\PlanWaypointEnv-v2_SAC_vecEnvLogs_baseline_model_mp.zip"
 	control_model = SAC.load(control_modelpath, device='cpu')
@@ -143,11 +181,11 @@ if __name__ == "__main__":
 		future_fatigue = executor.submit(evaluate_strategy, env_name, control_model, NUM_EPISODES, True, fatigue_gating, 42, "FatigueGating", 3)
 		future_predictive = executor.submit(evaluate_strategy, env_name, control_model, NUM_EPISODES, True, predictive_gating, 42, "PredictiveGating", 4)
 
-		median_return_native, returns_native = future_native.result()
-		median_return_threshold, returns_threshold = future_threshold.result()
-		median_return_blending, returns_blending = future_blending.result()
-		median_return_fatigue, returns_fatigue = future_fatigue.result()
-		median_return_predictive, returns_predictive = future_predictive.result()
+		median_return_native, returns_native, waypoints_native, intrusions_native = future_native.result()
+		median_return_threshold, returns_threshold, waypoints_threshold, intrusions_threshold = future_threshold.result()
+		median_return_blending, returns_blending, waypoints_blending, intrusions_blending = future_blending.result()
+		median_return_fatigue, returns_fatigue, waypoints_fatigue, intrusions_fatigue = future_fatigue.result()
+		median_return_predictive, returns_predictive, waypoints_predictive, intrusions_predictive = future_predictive.result()
 
 	print("\n" * 5) # Clear lines after tqdm progress bars
 	print(f"Native SAC median return: {median_return_native}")
@@ -156,9 +194,6 @@ if __name__ == "__main__":
 	print(f"FatigueBlendingGating median return: {median_return_fatigue}")
 	print(f"PredictiveShieldingGating median return: {median_return_predictive}")
 
-	
-
-	# Plot results
 	strategies = [
 		"ThresholdGating",
 		"BlendingGating",
@@ -166,14 +201,7 @@ if __name__ == "__main__":
 		"PredictiveShieldingGating",
 		"Native SAC"
 	]
-	medians = [
-		median_return_threshold,
-		median_return_blending,
-		median_return_fatigue,
-		median_return_predictive,
-		median_return_native
-	]
-	
+
 	all_returns = [
 		returns_threshold,
 		returns_blending,
@@ -182,54 +210,71 @@ if __name__ == "__main__":
 		returns_native
 	]
 	
-	means = [np.mean(r) for r in all_returns]
-	q25 = [np.percentile(r, 25) for r in all_returns]
-	q75 = [np.percentile(r, 75) for r in all_returns]
+	all_waypoints = [
+		waypoints_threshold,
+		waypoints_blending,
+		waypoints_fatigue,
+		waypoints_predictive,
+		waypoints_native
+	]
 	
-	yerr_lower = [m - q for m, q in zip(means, q25)]
-	yerr_upper = [q - m for m, q in zip(means, q75)]
+	all_intrusions = [
+		intrusions_threshold,
+		intrusions_blending,
+		intrusions_fatigue,
+		intrusions_predictive,
+		intrusions_native
+	]
 
 	colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
 
-	fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-	
-	# Plot 1: Median Returns (Point plot to better compare negative values)
-	for i, (strategy, median) in enumerate(zip(strategies, medians)):
-		ax1.plot(strategy, median, marker='o', markersize=10, color=colors[i])
-	ax1.set_ylabel("Median Return")
-	ax1.set_title(f"Median Returns of Strategies ({NUM_EPISODES} episodes)")
-	ax1.tick_params(axis='x', rotation=20)
-	ax1.grid(True, linestyle='--', alpha=0.7)
-
-	# Plot 2: Mean Returns with IQR error bars
-	for i, (strategy, mean, yl, yu) in enumerate(zip(strategies, means, yerr_lower, yerr_upper)):
-		ax2.errorbar(strategy, mean, yerr=[[yl], [yu]], fmt='o', capsize=5, markersize=10, color=colors[i], ecolor='black')
-	ax2.set_ylabel("Mean Return")
-	ax2.set_title(f"Mean Returns with IQR (25th-75th percentile)")
-	ax2.tick_params(axis='x', rotation=20)
-	ax2.grid(True, linestyle='--', alpha=0.7)
-
-	plt.tight_layout()
-
-	# Save the plot under plots/JOBID
 	import os
-	save_dir = os.path.join("plots", "moeStratComparison")
+	save_dir = os.path.join("plots", f"{COMBINED_JOBID}")
 	os.makedirs(save_dir, exist_ok=True)
-	
+
+	# Figure 1: Returns
+	fig1, ax1 = plt.subplots(figsize=(8, 6))
+	styled_boxplot(ax1, all_returns, strategies, colors,
+				   f"Episode Returns ({NUM_EPISODES} episodes)", "Episode Return")
+	plt.tight_layout()
+	plt.savefig(os.path.join(save_dir, "boxplot_returns.png"), bbox_inches='tight')
+
+	# Figure 2: Waypoints Completed
+	fig2, ax2 = plt.subplots(figsize=(8, 6))
+	styled_boxplot(ax2, all_waypoints, strategies, colors,
+				   f"Waypoints Completed ({NUM_EPISODES} episodes)", "Waypoints Completed")
+	plt.tight_layout()
+	plt.savefig(os.path.join(save_dir, "boxplot_waypoints.png"), bbox_inches='tight')
+
+	# Figure 3: Total Intrusions
+	fig3, ax3 = plt.subplots(figsize=(8, 6))
+	styled_boxplot(ax3, all_intrusions, strategies, colors,
+				   f"Total Intrusions ({NUM_EPISODES} episodes)", "Intrusions")
+	plt.tight_layout()
+	plt.savefig(os.path.join(save_dir, "boxplot_intrusions.png"), bbox_inches='tight')
+
+	print(f"Plots saved to {save_dir}")
+
 	# Export data using pandas
 	df = pd.DataFrame({
-		"ThresholdGating": returns_threshold,
-		"BlendingGating": returns_blending,
-		"FatigueBlendingGating": returns_fatigue,
-		"PredictiveShieldingGating": returns_predictive,
-		"Native SAC": returns_native
+		"ThresholdGating_Return": returns_threshold,
+		"BlendingGating_Return": returns_blending,
+		"FatigueBlendingGating_Return": returns_fatigue,
+		"PredictiveShieldingGating_Return": returns_predictive,
+		"NativeSAC_Return": returns_native,
+		"ThresholdGating_Waypoints": waypoints_threshold,
+		"BlendingGating_Waypoints": waypoints_blending,
+		"FatigueBlendingGating_Waypoints": waypoints_fatigue,
+		"PredictiveShieldingGating_Waypoints": waypoints_predictive,
+		"NativeSAC_Waypoints": waypoints_native,
+		"ThresholdGating_Intrusions": intrusions_threshold,
+		"BlendingGating_Intrusions": intrusions_blending,
+		"FatigueBlendingGating_Intrusions": intrusions_fatigue,
+		"PredictiveShieldingGating_Intrusions": intrusions_predictive,
+		"NativeSAC_Intrusions": intrusions_native,
 	})
 	csv_path = os.path.join(save_dir, "moe_evaluation_results.csv")
 	df.to_csv(csv_path, index=False)
 	print(f"Data exported to {csv_path}")
 
-	save_path = os.path.join(save_dir, "moe_returns_comparison.png")
-	plt.savefig(save_path)
-
 	plt.show()
-
