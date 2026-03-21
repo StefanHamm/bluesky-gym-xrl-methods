@@ -17,13 +17,15 @@ SENSOR_RANGE = 200 #km
 AIRWAY_WIDTH = 8 # NM
 
 DEBUG = False
-
+NM2KM = 1.852
+KT2MPS = 0.514444
 
 # REWARDS
 OVERALL_PROGRESS_REWARD = 100 # the reward the agents get for completing the rout, minus the reward it already received
 REACH_REWARD = 2
 DRIFT_PENALTY = -0.2
 ALTITUDE_PENALTY = -0.4 # altitude higher penalty than drift since more fuel cost
+SPARSE_ALT_PENALTY = -0.2 # if the agent is not at crusing alt
 INTRUSION_PENALTY = -4
 CORRIDOR_LEAVE_PENALTY = -0.5
 OBSTACLE_PENALTY = -5
@@ -35,6 +37,7 @@ NUM_INTRUDERS = 5
 NUM_WAYPOINTS = 1
 INTRUSION_DISTANCE = 5 # NM
 CRASH_DISTANCE_HORIZONTAL = 0.1 #NM
+EVASION_THRESHOLD_KM = 15 * NM2KM #threshold when corridor dirft penalty and altitude penalty is disabled
 
 
 CRASH_DISTANCE_VERTICAL = 50 # m
@@ -44,8 +47,7 @@ MIN_ROUTE_LENGTH = 4 #
 
 AC_SPD = 150 #m/s
 
-NM2KM = 1.852
-KT2MPS = 0.514444
+
 
 ACTION_FREQUENCY = 5
 
@@ -497,7 +499,10 @@ class NavWaypointEvadeEnv(gym.Env):
         alt_diff = abs(ac_alt - FLIGHT_LEVEL_M)
         max_diff = ALTITUDE_STEPS * D_ALTITUDE
         normalized_diff = np.clip(alt_diff / max_diff, 0, 1)
-        return normalized_diff * ALTITUDE_PENALTY
+        
+        #sparse when not being close to the target alt
+        sparse = SPARSE_ALT_PENALTY if alt_diff > D_ALTITUDE else 0.0
+        return normalized_diff * ALTITUDE_PENALTY + sparse
 
     def _get_obstacle_penalty(self):
         """Check if the agent is inside a void-obstacle region using the
@@ -518,13 +523,27 @@ class NavWaypointEvadeEnv(gym.Env):
         
         terminated = False
         waypoints_passed = self._check_pass_waypoint_bisector_line()
-        drift_penalty = self._get_drift_penalty()
-        corridor_penalty = self._get_corridor_penalty()
+        
+        
         intrusion_penalty,terminated = self._get_intrusion_penalty()
-        altitude_penalty = self._altitude_penalty()
+        
         obstacle_penalty = self._get_obstacle_penalty()
         reach_reward = waypoints_passed * REACH_REWARD
         self.waypoint_reached_count += waypoints_passed
+        
+        # check if at least one intruder is closer thant the threshold distance
+        if  min(self.intruder_distance) < EVASION_THRESHOLD_KM:
+            in_evasion = True
+        else:
+            in_evasion = False
+        if in_evasion:
+            drift_penalty = 0.0
+            corridor_penalty = 0.0
+            altitude_penalty = self._altitude_penalty() * 0.3 #softened when evading
+        else:
+            drift_penalty = self._get_drift_penalty()
+            corridor_penalty = self._get_corridor_penalty()
+            altitude_penalty = self._altitude_penalty()
         
         if self.current_passed_waypoint_idx == len(self.agent_nav_path)-1:
             # give a big reward for reaching the final waypoint
@@ -1334,7 +1353,7 @@ if __name__ == "__main__":
     heading_action = 0  # -1 for left, 0 for straight, 1 for right
     altitude_action = 4
     while True:
-        #print(f"Reward: {reward}")
+        
         
         i=i+1
         # input the action using arrow keys increase or decrease heading by 10 degrees
@@ -1357,11 +1376,11 @@ if __name__ == "__main__":
                     heading_action = 0
                     
                     
-        print(i)
+        #print(i)
         
         
         _, reward, terminated, _, _ = env.step([heading_action, altitude_action-4])
-        #print(reward)
+        print(reward)
         #print(i)
         if terminated:
             print("Episode terminated, resetting environment.")
