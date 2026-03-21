@@ -19,6 +19,7 @@ from bluesky_gym.utils import logger
 import numpy as np
 import random
 import torch
+import shutil
 
 def set_global_seed(seed):
     np.random.seed(seed)
@@ -48,11 +49,11 @@ ENV_NAME = "NavWaypointEvadeEnv-v0"
 ALGORITHMS = [SAC, PPO, TD3, DDPG, A2C]
 
 def make_env():
-    if args.workdir:
-        os.makedirs(args.workdir, exist_ok=True)
 
     if args.workdir:
-        env = gym.make(ENV_NAME, render_mode=None, workdir=args.workdir,stencil_radius_in_km=125)
+        dirWithPID = os.path.join(args.workdir, str(os.getpid()))
+        os.makedirs(dirWithPID, exist_ok=True)
+        env = gym.make(ENV_NAME, render_mode=None, workdir=dirWithPID,stencil_radius_in_km=125)
         sys.stdout.flush()
         return env
     else:
@@ -132,3 +133,10 @@ if __name__ == "__main__":
         model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=False)
         model.save(f"models/{args.jobid}/{ENV_NAME}/{ENV_NAME}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
         env.close()
+        
+    if args.workdir and os.path.exists(args.workdir):
+            try:
+                shutil.rmtree(args.workdir)
+                print(f"Successfully deleted working directory: {args.workdir}")
+            except Exception as e:
+                print(f"Failed to delete working directory {args.workdir}. Error: {e}")
