@@ -18,7 +18,7 @@ import bluesky as bs
 print(bs.__file__)
 
 if __name__ == "__main__":
-    JOBID = "5124851"
+    JOBID = "5196560"
     SEED = 43
     DEBUG = False
     # Initialize the environment and logger
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     else:
         gifFolder = f"./plots/{JOBID}/{env_name}/actionHeatmap/"
 
-    env = gym.make(env_name,render_mode='human',window_width=1000,window_height=1000,plot_all_points = True,stencil_radius_in_km=400)
+    env = gym.make(env_name,render_mode='human',window_width=1000,window_height=1000,plot_all_points = True,stencil_radius_in_km=125)
     env.reset(seed=SEED)
     
     modelpath = rf"models\{JOBID}\NavWaypointEvadeEnv-v0\NavWaypointEvadeEnv-v0_SAC_vecEnvLogs_baseline_model_mp.zip"
