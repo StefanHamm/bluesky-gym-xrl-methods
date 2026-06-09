@@ -2,6 +2,7 @@ import numpy as np
 import pygame
 
 import bluesky as bs
+import bluesky.traffic.windfield as wf
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -178,7 +179,7 @@ class VerticalCREnv(gym.Env):
             }
         
         return observation
-    
+
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
         altitude = bs.traf.alt[target_idx]
@@ -197,7 +198,7 @@ class VerticalCREnv(gym.Env):
             bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh,dH=dH,tlosv=tlosv)
             bs.traf.alt[i+1] = bs.traf.alt[target_idx] + dH
             bs.traf.ap.selaltcmd(i+1, bs.traf.alt[target_idx] + dH, 0)
-            
+ 
 
     def _get_info(self):
         # Here you implement any additional info that you want to return after a step,
@@ -249,10 +250,10 @@ class VerticalCREnv(gym.Env):
         # The actions are then executed through stack commands;
         if action >= 0:
             bs.traf.selalt[0] = 1000000 # High target altitude to start climb
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
         elif action < 0:
             bs.traf.selalt[0] = 0 # High target altitude to start descent
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
 
     def reset(self, seed=None, options=None):
         
