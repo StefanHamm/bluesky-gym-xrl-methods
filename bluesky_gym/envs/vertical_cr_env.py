@@ -185,8 +185,12 @@ class VerticalCREnv(gym.Env):
         altitude = bs.traf.alt[target_idx]
         spd = bs.traf.gs[target_idx]
         for i in range(NUM_INTRUDERS):
-            dpsi = self.np_random.integers(45,315)
-            cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+            #dpsi = self.np_random.integers(45,315)
+            #cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+
+            dpsi = 180
+            cpa = 0
+
             tlosh = self.np_random.integers(100,int((DEFAULT_RWY_DIS*0.9)*1000/spd))
             average_tod = (DEFAULT_RWY_DIS*1000/spd) - 2*self.target_alt/ACTION_2_MS
             if tlosh > average_tod:

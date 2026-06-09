@@ -173,47 +173,81 @@ class SaliencyMapV1Wrapper(xrlBaseWrapper):
         
         separation = bs.tools.geo.kwikdist(lat1, lon1, lat2, lon2)
         return separation
+
+    def _draw_shap_bar(self, canvas, shap_sum, x_pos, y_pos, bar_length, thickness, orientation="horizontal", pos_text="+", neg_text="-", title_text="PLACEHOLDER", base_value=None, actual_action=None):
         
-    
-   
-    def _draw_shap_bar(self,canvas,shap_sum,x_pos,y_pos,bar_length,thickness,orientation="horizontal",pos_text="+",neg_text="-",title_text="PLACEHOLDER"):
-        
-       
-        self._draw_gradient_bar(canvas, (x_pos,y_pos), bar_length, thickness,orientation == "horizontal")
+        self._draw_gradient_bar(canvas, (x_pos, y_pos), bar_length, thickness, orientation == "horizontal")
        
         pos_text = self.font.render(pos_text, True, (0,0,0))
         neg_text = self.font.render(neg_text, True, (0,0,0))
         title_text = self.font.render(title_text, True, (0,0,0))
         
-        # Get dimensions
         pos_w, pos_h = pos_text.get_size()
         neg_w, neg_h = neg_text.get_size()
         title_w, title_h = title_text.get_size()
         
         if orientation == "horizontal":
-            
             shap_sum += 2
-            shap_sum = (shap_sum / 4) * bar_length  # scale to bar length
+            shap_sum = (shap_sum / 4) * bar_length  
             pygame.draw.line(canvas, (0,0,0), (x_pos + int(shap_sum), y_pos), (x_pos + int(shap_sum), y_pos + thickness-3), 3)
             pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, bar_length, thickness), 2)
-
-            #draw text
-            
             canvas.blit(neg_text, (x_pos , y_pos + thickness + 5))
             canvas.blit(pos_text, (x_pos + bar_length - pos_w, y_pos + thickness + 5))
             canvas.blit(title_text, (x_pos + (bar_length- title_w)//2, y_pos - 20))
 
         elif orientation == "vertical":
-            shap_sum += 2
-            shap_sum = (shap_sum / 4) * thickness  # scale to bar length
-            pygame.draw.line(canvas, (0,0,0), (x_pos, y_pos + int(shap_sum)), (x_pos + thickness-3, y_pos + int(shap_sum)), 3)
             pygame.draw.rect(canvas, (0,0,0), (x_pos, y_pos, thickness, bar_length), 2)
             
-            #draw text
-            canvas.blit(neg_text, (x_pos + thickness + 5, y_pos + bar_length - 10))
-            canvas.blit(pos_text, (x_pos + thickness + 5, y_pos))
-            canvas.blit(title_text, (x_pos, y_pos - 20))
+            if base_value is not None and actual_action is not None:
+                b_val = max(-1.0, min(1.0, float(base_value)))
+                a_val = max(-1.0, min(1.0, float(actual_action)))
+                
+                y_base = y_pos + int(((1.0 - b_val) / 2.0) * bar_length)
+                y_act = y_pos + int(((1.0 - a_val) / 2.0) * bar_length)
+                
+                # --- Right Side: Anchor Lines & Text Labels ---
+                # Base Value (phi_0)
+                pygame.draw.line(canvas, (0, 150, 0), (x_pos, y_base), (x_pos + thickness + 15, y_base), 3)
+                base_label = self.font.render("Base", True, (0, 150, 0))
+                canvas.blit(base_label, (x_pos + thickness + 20, y_base - 8))
+                
+                # Actual Action (f(x))
+                pygame.draw.line(canvas, (0, 0, 0), (x_pos, y_act), (x_pos + thickness + 15, y_act), 3)
+                act_label = self.font.render("Actual", True, (0, 0, 0))
+                canvas.blit(act_label, (x_pos + thickness + 20, y_act - 8))
+                
+                # --- Left Side: Influence Vector Arrow ---
+                arrow_x = x_pos - 15
+                
+                # Only draw the vector if there is a meaningful distance
+                if abs(y_act - y_base) > 2:
+                    # Stem
+                    pygame.draw.line(canvas, (50, 50, 50), (arrow_x, y_base), (arrow_x, y_act), 2)
+                    
+                    # Arrowhead pointing to Actual
+                    arrow_size = 6
+                    if y_act > y_base: # Pointing Down
+                        points = [(arrow_x - arrow_size, y_act - arrow_size), 
+                                  (arrow_x + arrow_size, y_act - arrow_size), 
+                                  (arrow_x, y_act)]
+                    else: # Pointing Up
+                        points = [(arrow_x - arrow_size, y_act + arrow_size), 
+                                  (arrow_x + arrow_size, y_act + arrow_size), 
+                                  (arrow_x, y_act)]
+                                  
+                    pygame.draw.polygon(canvas, (50, 50, 50), points)
+
+            else:
+                # Fallback template calculation
+                shap_sum = max(-2, min(2, shap_sum))
+                pixel_offset = int(((2 - shap_sum) / 4.0) * bar_length)
+                pygame.draw.line(canvas, (0,0,0), (x_pos, y_pos + pixel_offset), (x_pos + thickness-3, y_pos + pixel_offset), 3)
             
+            # Standard boundary labels
+            canvas.blit(neg_text, (x_pos + thickness + 5, y_pos + bar_length + 5))
+            canvas.blit(pos_text, (x_pos + thickness + 5, y_pos - 20))
+            canvas.blit(title_text, (x_pos - 10, y_pos - 40))
+
     def _draw_shap_circle(self, canvas, x_pos, y_pos, radius, shap_sums, neg_labels:list=["L","-"], pos_labels:list=["R","+"]):
         """
         Draws a circular vector plot representing combined Heading and Speed influence.
