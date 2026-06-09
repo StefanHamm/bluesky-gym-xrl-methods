@@ -125,11 +125,13 @@ if __name__ == "__main__":
             seed=args.model_seed,
             tensorboard_log=f"./logs/tensorboard/{env_name}/")
         
-        
-        model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
-        model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
-        
-        env.close()
+        try:
+            model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
+        except KeyboardInterrupt:
+            print("Training interrupted. Saving intermediate model...")
+        finally:
+            model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
+            env.close()
 
 
 
