@@ -153,10 +153,10 @@ class DescentEnv(gym.Env):
         # The actions are then executed through stack commands;
         if action >= 0:
             bs.traf.selalt[0] = 1000000 # High target altitude to start climb
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
         elif action < 0:
             bs.traf.selalt[0] = 0 # High target altitude to start descent
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
 
     def reset(self, seed=None, options=None):
         

@@ -35,12 +35,15 @@ keywords_mapping = {
     "SectorCREnv-v0": ['total_intrusions','average_drift'],
     "StaticObstacleEnv-v0": ['crashed','average_drift','waypoint_reached'],
     "VerticalCREnv-v0": ['total_intrusions', 'final_altitude'],
+    "DescentEnv-v0": ['final_altitude'],
+    "MergeEnv-v0": ['faf_reach', 'average_drift', 'total_intrusions']
 }
 
 
 # all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
 # all_envs = ["VerticalCREnv-v0"]
-all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0","VerticalCREnv-v0"]
+#all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0","VerticalCREnv-v0"]
+all_envs = ["DescentEnv-v0", "VerticalCREnv-v0", "StaticObstacleEnv-v0", "MergeEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
 #algorithms = [SAC, TD3]
 
