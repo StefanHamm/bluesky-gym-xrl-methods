@@ -25,6 +25,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_eps', type=int, default=5)
     parser.add_argument('--max_steps', type=int, default=50)
     parser.add_argument('--model_path', type=str, required=True)
+    parser.add_argument("--export_path", type=str, default="./replays", help="Path to save visual replays")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -33,7 +34,7 @@ if __name__ == "__main__":
     
     model = SAC.load(args.model_path, device='cpu')
 
-    saliencyEnv = SaliencyVerticalControl(env, SAFE_VALS, fps=5, color_mode="clipped", model=model)
+    saliencyEnv = SaliencyVerticalControl(env, SAFE_VALS, fps=5, color_mode="clipped", model=model, export_gifs_path=args.export_path)
  
     for i in range(args.n_eps):
         done = truncated = False
