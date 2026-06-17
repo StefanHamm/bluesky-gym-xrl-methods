@@ -2,7 +2,6 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -45,7 +44,7 @@ class DescentEnv(gym.Env):
     # for BlueSkyGym probably only implement 1 for now together with None, which is default
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None,workdir=None):
         self.window_width = 512
         self.window_height = 256
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -66,10 +65,9 @@ class DescentEnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True, workdir=workdir)
 
-        # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        # set correct sim speed
         bs.stack.stack('DT 1;FF')
 
         # initialize values used for logging -> input in _get_info
@@ -155,10 +153,10 @@ class DescentEnv(gym.Env):
         # The actions are then executed through stack commands;
         if action >= 0:
             bs.traf.selalt[0] = 1000000 # High target altitude to start climb
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
         elif action < 0:
             bs.traf.selalt[0] = 0 # High target altitude to start descent
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
 
     def reset(self, seed=None, options=None):
         
@@ -168,8 +166,8 @@ class DescentEnv(gym.Env):
         self.total_reward = 0
         self.final_altitude = 0
 
-        alt_init = np.random.randint(ALT_MIN, ALT_MAX)
-        self.target_alt = alt_init + np.random.randint(-TARGET_ALT_DIF,TARGET_ALT_DIF)
+        alt_init = self.np_random.integers(ALT_MIN, ALT_MAX)
+        self.target_alt = alt_init + self.np_random.integers(-TARGET_ALT_DIF,TARGET_ALT_DIF)
 
         bs.traf.cre('KL001',actype="A320",acalt=alt_init,acspd=AC_SPD)
         bs.traf.swvnav[0] = False

@@ -14,6 +14,12 @@ def register_envs():
         entry_point="bluesky_gym.envs.plan_waypoint_env:PlanWaypointEnv",
         max_episode_steps=300,
     )
+    
+    register(
+        id="PlanWaypointEnv-v2",
+        entry_point="bluesky_gym.envs.plan_waypoint_envV2:PlanWaypointEnvV2",
+        max_episode_steps=900,
+    )
 
     register(
         id="HorizontalCREnv-v0",
@@ -49,4 +55,22 @@ def register_envs():
         id="MergeEnv-v0",
         entry_point="bluesky_gym.envs.merge_env:MergeEnv",
         max_episode_steps=50,
+    )
+    
+    register(
+        id="FreeFlightCREnv-v0",
+        entry_point="bluesky_gym.envs.free_flight_env:FreeFlightCREnv",
+        max_episode_steps=60,
+    )
+    
+    register(
+        id="PlanWaypointEvadeEnv-v0",
+        entry_point="bluesky_gym.envs.plan_waypoint_evade_env:PlanWaypointEvadeEnv",
+        max_episode_steps=900,
+    )
+    
+    register(
+        id="NavWaypointEvadeEnv-v0",
+        entry_point="bluesky_gym.envs.nav_waypoint_evade_env:NavWaypointEvadeEnv",
+        max_episode_steps = 200
     )

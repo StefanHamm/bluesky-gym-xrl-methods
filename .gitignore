@@ -3,6 +3,12 @@
 .vscode
 TODO.txt
 images/
+selected_results/
+plots/
 logs/
 models/
 dist/
+**/frames/*
+download_job_artifacts.ps1
+*.gif
+*.ps1

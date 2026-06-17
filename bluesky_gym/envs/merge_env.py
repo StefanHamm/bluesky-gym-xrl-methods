@@ -2,7 +2,6 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -30,9 +29,13 @@ D_SPEED = 20
 AC_SPD = 100
 
 NM2KM = 1.852
+
 MpS2Kt = 1.94384
 
 ACTION_FREQUENCY = 10
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 NUM_AC = 20
 NUM_AC_STATE = 5
@@ -51,7 +54,7 @@ class MergeEnv(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None,workdir=None):
         self.window_width = 750
         self.window_height = 500
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -80,10 +83,9 @@ class MergeEnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True,workdir=workdir)
 
-        # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        # set correct sim speed
         bs.stack.stack('DT 5;FF')
 
         # initialize values used for logging -> input in _get_info
@@ -113,8 +115,8 @@ class MergeEnv(gym.Env):
         self.faf_reached = 0
 
         # ownship spawn location
-        bearing_to_pos = random.uniform(-D_HEADING, D_HEADING) # heading radial towards FAF
-        distance_to_pos = random.uniform(SPAWN_DISTANCE_MIN,SPAWN_DISTANCE_MAX)  # distance to faf 
+        bearing_to_pos = self.np_random.uniform(-D_HEADING, D_HEADING) # heading radial towards FAF
+        distance_to_pos = self.np_random.uniform(SPAWN_DISTANCE_MIN,SPAWN_DISTANCE_MAX)  # distance to faf 
         rlat, rlon = fn.get_point_at_distance(FIX_LAT, FIX_LON, distance_to_pos, bearing_to_pos)
 
         bs.traf.cre('KL001',actype="A320",acspd=AC_SPD, aclat= rlat, aclon= rlon, achdg=bearing_to_pos-180,acalt=10000)
@@ -148,8 +150,8 @@ class MergeEnv(gym.Env):
     
     def _gen_aircraft(self):
         for i in range(NUM_AC-1):
-            bearing_to_pos = random.uniform(-D_HEADING, D_HEADING) # heading radial towards FAF
-            distance_to_pos = random.uniform(INTRUDER_DISTANCE_MIN,INTRUDER_DISTANCE_MAX) # distance to faf 
+            bearing_to_pos = self.np_random.uniform(-D_HEADING, D_HEADING) # heading radial towards FAF
+            distance_to_pos = self.np_random.uniform(INTRUDER_DISTANCE_MIN,INTRUDER_DISTANCE_MAX) # distance to faf 
             lat_ac, lon_ac = fn.get_point_at_distance(self.wpt_lat, self.wpt_lon, distance_to_pos, bearing_to_pos)
 
             bs.traf.cre(f'INT{i}',actype="A320",acspd=AC_SPD,aclat=lat_ac,aclon=lon_ac,achdg=bearing_to_pos-180,acalt=10000)
@@ -369,6 +371,7 @@ class MergeEnv(gym.Env):
         width = 4
         )
 
+
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
@@ -385,11 +388,13 @@ class MergeEnv(gym.Env):
             width = 4
         )
 
-        # draw heading line
-        heading_length = 10
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-
+        # draw heading line with variable length depending on seconds into the future
+        PX2KM = self.window_width/max_distance
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
         pygame.draw.line(canvas,
             (0,0,0),
             (x_pos,y_pos),
@@ -399,6 +404,7 @@ class MergeEnv(gym.Env):
 
         # draw intruders
         ac_length = 3
+
 
         for i in range(1,NUM_AC):
             int_idx = i
@@ -426,11 +432,12 @@ class MergeEnv(gym.Env):
                 width = 4
             )
 
-            # draw heading line
-            heading_length = 10
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-
+            # draw heading line with variable length depending on seconds into the future
+            int_spd = bs.traf.cas[int_idx] # m/s
+            heading_length_km = int_spd/1000 * HEADING_LENGTH_IN_SECONDS
+            heading_length_px = heading_length_km * PX2KM
+            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px))
+            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px))
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),

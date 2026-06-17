@@ -2,7 +2,6 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -18,13 +17,19 @@ ALTITUDE = 350 # In FL
 
 # Aircraft parameters
 AC_SPD = 150
+AC_SPD_MIN = 72
+AC_SPD_MAX = 180
 AC_TYPE = "A320"
 ACTOR = "KL001"
 
 # Conversion factors
 NM2KM = 1.852
+
 MpS2Kt = 1.94384
 FL2M = 30.48
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 INTRUSION_DISTANCE = 5 # NM
 
@@ -32,6 +37,7 @@ INTRUSION_DISTANCE = 5 # NM
 ACTION_FREQUENCY = 5
 NUM_AC_STATE = 4
 DRIFT_PENALTY = -0.1
+SPEED_PENALTY = -0.1
 INTRUSION_PENALTY = -1
 D_HEADING = 22.5 # deg
 D_VELOCITY = 20/3 # kts
@@ -42,7 +48,7 @@ class SectorCREnv(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
     
-    def __init__(self, render_mode=None, ac_density_mode="normal"):
+    def __init__(self, render_mode=None, ac_density_mode="normal",workdir=None):
         self.window_width = 512
         self.window_height = 512
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -71,10 +77,9 @@ class SectorCREnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True,workdir=workdir)
 
-        # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        # set correct sim speed
         bs.stack.stack('DT 1;FF')
 
         # initialize values used for logging -> input in _get_info
@@ -86,6 +91,8 @@ class SectorCREnv(gym.Env):
         self.clock = None
     
     def reset(self, seed=None, options=None):
+        if options is None:
+            options = {}
         bs.traf.reset()
         bs.tools.areafilter.deleteArea(self.poly_name)
         super().reset(seed=seed)
@@ -97,11 +104,11 @@ class SectorCREnv(gym.Env):
         self._generate_polygon() # Create airspace polygon
         
         if self.density_mode == "normal":
-            rand_density = np.random.normal(AC_DENSITY_MU, AC_DENSITY_SIGMA)
-            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
+            rand_density = self.np_random.normal(AC_DENSITY_MU, AC_DENSITY_SIGMA)
+            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), int((NUM_AC_STATE+1)*options.get("SpawnFactor",1)))) # Get total number of AC in the airspace including agent (min = 3)
         else:
-            rand_density = np.random.uniform(*AC_DENSITY_RANGE)
-            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), NUM_AC_STATE+1)) # Get total number of AC in the airspace including agent (min = 3)
+            rand_density = self.np_random.uniform(*AC_DENSITY_RANGE)
+            self.num_ac = int(max(np.ceil(rand_density * self.poly_area), int((NUM_AC_STATE+1)*options.get("SpawnFactor",1)))) # Get total number of AC in the airspace including agent (min = 3)
         
         self._generate_waypoints() # Create waypoints for aircraft
         self._generate_ac() # Create aircraft in the airspace
@@ -124,13 +131,13 @@ class SectorCREnv(gym.Env):
                 self._render_frame()
         
         observation = self._get_obs()        
-        reward = self._get_reward()
+        reward,terminated = self._get_reward()
         info = self._get_info()
 
         # truncate instead of terminate to avoid aircraft learning to exit sector fast
         truncate = self._check_inside_airspace()
 
-        return observation, reward, False, truncate, info
+        return observation, reward, terminated, truncate, info
     
     def _check_inside_airspace(self):
         ac_idx = bs.traf.id2idx(ACTOR)
@@ -142,12 +149,12 @@ class SectorCREnv(gym.Env):
     def _generate_polygon(self):
         
         R = np.sqrt(POLY_AREA_RANGE[1] / np.pi)
-        p = [fn.random_point_on_circle(R) for _ in range(3)] # 3 random points to start building the polygon
+        p = [fn.random_point_on_circle(R,self.np_random) for _ in range(3)] # 3 random points to start building the polygon
         p = fn.sort_points_clockwise(p)
         p_area = fn.polygon_area(p)
         
         while p_area < POLY_AREA_RANGE[0]:
-            p.append(fn.random_point_on_circle(R))
+            p.append(fn.random_point_on_circle(R,self.np_random))
             p = fn.sort_points_clockwise(p)
             p_area = fn.polygon_area(p)
         
@@ -172,7 +179,7 @@ class SectorCREnv(gym.Env):
             edges.append((p1, p2, len_edge))
             perim_tot += len_edge
         
-        d_list = [np.random.uniform(0, perim_tot) for _ in range(self.num_ac)] # Each ac including agent is given a waypoint
+        d_list = [self.np_random.uniform(0, perim_tot) for _ in range(self.num_ac)] # Each ac including agent is given a waypoint
         d_list.sort()
         
         self.wpts = [] # In terms of NM
@@ -199,7 +206,7 @@ class SectorCREnv(gym.Env):
         init_p_latlong = []
         
         while len(init_p_latlong) < self.num_ac:
-            p = np.array([np.random.uniform(min_x, max_x), np.random.uniform(min_y, max_y)])
+            p = np.array([self.np_random.uniform(min_x, max_x), self.np_random.uniform(min_y, max_y)])
             p = fn.nm_to_latlong(CENTER, p)
             if bs.tools.areafilter.checkInside(self.poly_name, np.array([p[0]]), np.array([p[1]]), np.array([ALTITUDE*FL2M])):
                 init_p_latlong.append(p)
@@ -224,16 +231,26 @@ class SectorCREnv(gym.Env):
             'total_intrusions': self.total_intrusions,
             'average_drift': self.average_drift.mean()
         }
+        
+    def _get_speed_change(self):
+        current_speed = bs.traf.tas[bs.traf.id2idx(ACTOR)]
+        speed_change = abs(current_speed - AC_SPD)
+        # normalize between 0 and 1 e.g. for AC_SPD; AC_SPD_MAX;AC_SPD_MIN
+        norm_speed_change = speed_change / (AC_SPD_MAX - AC_SPD_MIN)
+        return norm_speed_change * SPEED_PENALTY
+        
+        
     
     def _get_reward(self):
         
         drift_reward = self._check_drift()
         intrusion_reward = self._check_intrusion()
+        speed_reward = self._get_speed_change()
 
-        total_reward = drift_reward + intrusion_reward
+        total_reward = drift_reward + intrusion_reward + speed_reward
         self.total_reward += total_reward
 
-        return total_reward
+        return total_reward,False
     
     def _get_obs(self):
 
@@ -301,7 +318,7 @@ class SectorCREnv(gym.Env):
         observation = {
             "cos(drift)": self.cos_drift,
             "sin(drift)": self.sin_drift,
-            "airspeed": (self.airspeed-150)/6,
+            "airspeed": (self.airspeed-AC_SPD)/D_VELOCITY,
             "x_r": self.x_r[:NUM_AC_STATE]/13000,
             "y_r": self.y_r[:NUM_AC_STATE]/13000,
             "vx_r": self.vx_r[:NUM_AC_STATE]/32,
@@ -317,10 +334,12 @@ class SectorCREnv(gym.Env):
         dh = action[0] * D_HEADING
         dv = action[1] * D_VELOCITY
         heading_new = fn.bound_angle_positive_negative_180(bs.traf.hdg[bs.traf.id2idx(ACTOR)] + dh)
-        speed_new = (bs.traf.cas[bs.traf.id2idx(ACTOR)] + dv) * MpS2Kt
-
+        speed_new = (bs.traf.tas[bs.traf.id2idx(ACTOR)] + dv) * MpS2Kt
+        
         bs.stack.stack(f"HDG {ACTOR} {heading_new}")
         bs.stack.stack(f"SPD {ACTOR} {speed_new}")
+        
+
 
     def _check_drift(self):
         drift = abs(np.deg2rad(self.drift))
@@ -340,6 +359,9 @@ class SectorCREnv(gym.Env):
         return reward
         
     def _render_frame(self):
+        
+        
+        
         if self.window is None and self.render_mode == "human":
             pygame.init()
             pygame.display.init()
@@ -347,6 +369,13 @@ class SectorCREnv(gym.Env):
 
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                if self.window is not None:
+                    pygame.display.quit()
+                self.close()
+                exit()
 
         max_distance = max(np.linalg.norm(point1 - point2) for point1 in self.poly_points for point2 in self.poly_points)*NM2KM
         
@@ -359,6 +388,7 @@ class SectorCREnv(gym.Env):
         airspace_color = (255, 0, 0)
         coords = [((self.window_width/2)+point[0]*NM2KM*px_per_km, (self.window_height/2)-point[1]*NM2KM*px_per_km) for point in self.poly_points]
         pygame.draw.polygon(canvas, airspace_color, coords, width=2)
+
 
         # Draw ownship
         ac_idx = bs.traf.id2idx(ACTOR)
@@ -378,20 +408,23 @@ class SectorCREnv(gym.Env):
             width = 4
         )
 
-        # Draw heading line
-        heading_length = 20
-        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * heading_length
-        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * heading_length
+        # Draw heading line with variable length depending on seconds into the future
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * px_per_km
+        heading_end_x = np.cos(np.deg2rad(ac_hdg)) * heading_length_px
+        heading_end_y = np.sin(np.deg2rad(ac_hdg)) * heading_length_px
 
         pygame.draw.line(canvas,
-                (0,0,0),
-                (x_pos,y_pos),
-                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
-                width = 1
+            (0,0,0),
+            (x_pos,y_pos),
+            ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+            width = 1
         )
 
         # Draw intruders
         ac_length = 3
+
 
         for i in range(self.num_ac-1):
             int_idx = i+1
@@ -418,10 +451,12 @@ class SectorCREnv(gym.Env):
                 width = 4
             )
 
-            # Draw heading line
-            heading_length = 20
-            heading_end_x = np.cos(np.deg2rad(int_hdg)) * heading_length
-            heading_end_y = np.sin(np.deg2rad(int_hdg)) * heading_length
+            # Draw heading line with variable length depending on seconds into the future
+            int_spd = bs.traf.cas[int_idx] # m/s
+            heading_length_km = int_spd/1000 * HEADING_LENGTH_IN_SECONDS
+            heading_length_px = heading_length_km * px_per_km
+            heading_end_x = np.cos(np.deg2rad(int_hdg)) * heading_length_px
+            heading_end_y = np.sin(np.deg2rad(int_hdg)) * heading_length_px
 
             pygame.draw.line(canvas,
                 color,
@@ -437,8 +472,8 @@ class SectorCREnv(gym.Env):
                 radius = INTRUSION_DISTANCE*NM2KM*px_per_km,
                 width = 2
             )
-
         self.window.blit(canvas, canvas.get_rect())
+        
         pygame.display.update()
         self.clock.tick(self.metadata["render_fps"])
     

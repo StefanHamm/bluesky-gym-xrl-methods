@@ -15,6 +15,10 @@ For a complete list of the currently available environments click [here](bluesky
 
 Note that the pip package is `bluesky-gym`, for usage however, import as `bluesky_gym`.
 
+## For cuda enabled systems, it is recommended to install PyTorch with cuda support separately.
+
+`pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118`
+
 ## Usage
 Using the environments follows the standard API from Gymnasium, an example of which is given below:
 

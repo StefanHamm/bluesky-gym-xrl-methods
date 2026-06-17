@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+import bluesky.traffic.windfield as wf
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -91,8 +91,7 @@ class VerticalCREnv(gym.Env):
         if bs.sim is None:
             bs.init(mode='sim', detached=True)
 
-        # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        # set correct sim speed
         bs.stack.stack('DT 1;FF')
 
         # initialize values used for logging -> input in _get_info
@@ -180,26 +179,30 @@ class VerticalCREnv(gym.Env):
             }
         
         return observation
-    
+
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
         altitude = bs.traf.alt[target_idx]
         spd = bs.traf.gs[target_idx]
         for i in range(NUM_INTRUDERS):
-            dpsi = np.random.randint(45,315)
-            cpa = np.random.randint(0,INTRUSION_DISTANCE)
-            tlosh = np.random.randint(100,int((DEFAULT_RWY_DIS*0.9)*1000/spd))
+            #dpsi = self.np_random.integers(45,315)
+            #cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+
+            dpsi = 180
+            cpa = 0
+
+            tlosh = self.np_random.integers(100,int((DEFAULT_RWY_DIS*0.9)*1000/spd))
             average_tod = (DEFAULT_RWY_DIS*1000/spd) - 2*self.target_alt/ACTION_2_MS
             if tlosh > average_tod:
-                dH = np.random.randint(int(-altitude + 500),int((self.target_alt - altitude) + 100))
+                dH = self.np_random.integers(int(-altitude + 500),int((self.target_alt - altitude) + 100))
             else:
-                dH = np.random.randint(int((self.target_alt - altitude) - 500),int((self.target_alt - altitude) + 500))
+                dH = self.np_random.integers(int((self.target_alt - altitude) - 500),int((self.target_alt - altitude) + 500))
             tlosv = 100000000000.
 
             bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh,dH=dH,tlosv=tlosv)
             bs.traf.alt[i+1] = bs.traf.alt[target_idx] + dH
             bs.traf.ap.selaltcmd(i+1, bs.traf.alt[target_idx] + dH, 0)
-            
+ 
 
     def _get_info(self):
         # Here you implement any additional info that you want to return after a step,
@@ -251,10 +254,10 @@ class VerticalCREnv(gym.Env):
         # The actions are then executed through stack commands;
         if action >= 0:
             bs.traf.selalt[0] = 1000000 # High target altitude to start climb
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
         elif action < 0:
             bs.traf.selalt[0] = 0 # High target altitude to start descent
-            bs.traf.selvs[0] = action
+            bs.traf.selvs[0] = action[0]
 
     def reset(self, seed=None, options=None):
         
@@ -265,8 +268,8 @@ class VerticalCREnv(gym.Env):
         self.total_intrusions = 0
         self.final_altitude = 0
 
-        alt_init = np.random.randint(ALT_MIN, ALT_MAX)
-        self.target_alt = alt_init + np.random.randint(-TARGET_ALT_DIF,TARGET_ALT_DIF)
+        alt_init = self.np_random.integers(ALT_MIN, ALT_MAX)
+        self.target_alt = alt_init + self.np_random.integers(-TARGET_ALT_DIF,TARGET_ALT_DIF)
 
         bs.traf.cre('KL001',actype="A320",acalt=alt_init,acspd=AC_SPD)
         bs.traf.swvnav[0] = False

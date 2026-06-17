@@ -2,7 +2,6 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -17,7 +16,11 @@ NUM_WAYPOINTS = 5
 REACH_REWARD = 1
 AC_SPD = 150
 
+
 D_HEADING = 45
+
+# The line will represent where the plane will be in this many seconds if it keeps its current heading
+HEADING_LENGTH_IN_SECONDS = 240
 
 ACTION_FREQUENCY = 10
 
@@ -42,7 +45,7 @@ class PlanWaypointEnv(gym.Env):
     # for BlueSkyGym probably only implement 1 for now together with None, which is default
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None,workdir=None):
         self.window_width = 512
         self.window_height = 512
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -63,10 +66,9 @@ class PlanWaypointEnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True,workdir=workdir)
 
-        # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        # set correct sim speed
         bs.stack.stack('DT 1;FF')
 
         # initialize values used for logging -> input in _get_info
@@ -116,7 +118,7 @@ class PlanWaypointEnv(gym.Env):
             self.drift.append(drift)
 
         observation = {
-                "waypoint_distance": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_dis)/WAYPOINT_DISTANCE_MAX,
+                "waypoint_distance": np.clip((np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_dis)/WAYPOINT_DISTANCE_MAX,0,1),
                 "cos_difference": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_cos),
                 "sin_difference": (np.array(self.wpt_reach) -1)* -1 * np.array(self.wpt_sin),
                 "waypoint_reached": np.array(self.wpt_reach)
@@ -149,7 +151,7 @@ class PlanWaypointEnv(gym.Env):
     def _get_action(self,action):
 
         # Transform action to the change in heading
-        # action = np.random.randint(-100,100)/100
+        # action = self.np_random.integers(-100,100)/100
         action = self.ac_hdg + action * D_HEADING
 
         bs.stack.stack(f"HDG KL001 {action[0]}")
@@ -203,8 +205,8 @@ class PlanWaypointEnv(gym.Env):
         self.wpt_lon = []
         self.wpt_reach = []
         for i in range(NUM_WAYPOINTS):
-            wpt_dis_init = np.random.randint(WAYPOINT_DISTANCE_MIN, WAYPOINT_DISTANCE_MAX)
-            wpt_hdg_init = np.random.randint(0, 359)
+            wpt_dis_init = self.np_random.integers(WAYPOINT_DISTANCE_MIN, WAYPOINT_DISTANCE_MAX)
+            wpt_hdg_init = self.np_random.integers(0, 359)
 
             ac_idx = bs.traf.id2idx(acid)
 
@@ -241,6 +243,7 @@ class PlanWaypointEnv(gym.Env):
         canvas = pygame.Surface(self.window_size)
         canvas.fill((135,206,235))
 
+
         # draw ownship
         ac_idx = bs.traf.id2idx('KL001')
         ac_length = 8
@@ -254,11 +257,14 @@ class PlanWaypointEnv(gym.Env):
             width = 4
         )
 
-        # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-
+        # draw heading line with variable length depending on seconds into the future
+        PX2KM = self.window_width/max_distance
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px))
+        
         pygame.draw.line(canvas,
             (0,0,0),
             (self.window_width/2,self.window_height/2),

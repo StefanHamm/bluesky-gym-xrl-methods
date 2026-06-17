@@ -1,5 +1,8 @@
 import numpy as np
 from typing import List
+import numpy as np
+
+import networkx as nx
 
 def bound_angle_positive_negative_180(angle_deg: float) -> float:
     """ maps any angle in degrees to the [-180,180] interval 
@@ -368,3 +371,40 @@ def segments_intersection_params(segs1: np.ndarray, segs2: np.ndarray, eps: floa
 
     return t, u, intersects
 
+def load_graph(vertices_path, edges_path):
+    """Load a navigation graph from CSV files.
+
+    Parameters
+    ----------
+    vertices_path : str
+        Path to the vertices CSV file (columns: id, lat, lon, altitude, is_airport).
+    edges_path : str
+        Path to the edges CSV file (columns: node1, node2, distance).
+
+    Returns
+    -------
+    networkx.Graph
+        Graph with node attributes 'lat' and 'lon', and edge attribute 'weight'.
+    """
+    graph = nx.Graph()
+    with open(vertices_path, 'r') as f:
+        f.readline()  # skip header
+        for line in f:
+            parts = line.strip().split(',')
+            node_id = str(parts[0])
+            lat = float(parts[1])
+            lon = float(parts[2])
+            altitude = float(parts[3])
+            is_airport = int(parts[4])
+            if not is_airport:
+                graph.add_node(node_id, lat=lat, lon=lon)
+    with open(edges_path, 'r') as f:
+        f.readline()  # skip header
+        for line in f:
+            parts = line.strip().split(',')
+            node1 = str(parts[0])
+            node2 = str(parts[1])
+            distance = float(parts[2])
+            if node1 in graph.nodes and node2 in graph.nodes:
+                graph.add_edge(node1, node2, weight=distance)
+    return graph

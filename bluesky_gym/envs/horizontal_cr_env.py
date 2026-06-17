@@ -2,7 +2,6 @@ import numpy as np
 import pygame
 
 import bluesky as bs
-from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 import bluesky_gym.envs.common.functions as fn
 
 import gymnasium as gym
@@ -29,6 +28,8 @@ NM2KM = 1.852
 
 ACTION_FREQUENCY = 10
 
+HEADING_LENGTH_IN_SECONDS = 240 # The line will represent where the plane will be in 240 seconds if it keeps its current heading, this is just for visualization purposes
+
 class HorizontalCREnv(gym.Env):
     """ 
     Horizontal Conflict Resolution Environment
@@ -38,7 +39,7 @@ class HorizontalCREnv(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None,workdir=None):
         self.window_width = 512
         self.window_height = 512
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -66,10 +67,9 @@ class HorizontalCREnv(gym.Env):
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
-            bs.init(mode='sim', detached=True)
+            bs.init(mode='sim', detached=True, workdir=workdir)
 
-        # initialize dummy screen and set correct sim speed
-        bs.scr = ScreenDummy()
+        # set correct sim speed
         bs.stack.stack('DT 5;FF')
 
         # initialize values used for logging -> input in _get_info
@@ -128,9 +128,9 @@ class HorizontalCREnv(gym.Env):
     def _generate_conflicts(self, acid = 'KL001'):
         target_idx = bs.traf.id2idx(acid)
         for i in range(NUM_INTRUDERS):
-            dpsi = np.random.randint(45,315)
-            cpa = np.random.randint(0,INTRUSION_DISTANCE)
-            tlosh = np.random.randint(100,1000)
+            dpsi = self.np_random.integers(45,315)
+            cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+            tlosh = self.np_random.integers(100,1000)
             bs.traf.creconfs(acid=f'{i}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
 
     def _generate_waypoint(self, acid = 'KL001'):
@@ -138,7 +138,7 @@ class HorizontalCREnv(gym.Env):
         self.wpt_lon = []
         self.wpt_reach = []
         for i in range(NUM_WAYPOINTS):
-            wpt_dis_init = np.random.randint(WAYPOINT_DISTANCE_MIN, WAYPOINT_DISTANCE_MAX)
+            wpt_dis_init = self.np_random.integers(WAYPOINT_DISTANCE_MIN, WAYPOINT_DISTANCE_MAX)
             wpt_hdg_init = 0
 
             ac_idx = bs.traf.id2idx(acid)
@@ -284,6 +284,13 @@ class HorizontalCREnv(gym.Env):
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                if self.window is not None:
+                    pygame.display.quit()
+                self.close()
+                exit()
+
         max_distance = 200 # width of screen in km
 
         canvas = pygame.Surface(self.window_size)
@@ -303,10 +310,12 @@ class HorizontalCREnv(gym.Env):
         )
 
         # draw heading line
-        heading_length = 50
-        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
-
+        PX2KM = self.window_width/max_distance
+        ac_spd = bs.traf.cas[ac_idx] #m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        headling_length_px = heading_length_km * PX2KM
+        heading_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * headling_length_px))
+        heading_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * headling_length_px))
         pygame.draw.line(canvas,
             (0,0,0),
             (self.window_width/2,self.window_height/2),
@@ -342,10 +351,10 @@ class HorizontalCREnv(gym.Env):
             )
 
             # draw heading line
-            heading_length = 10
-            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length)/max_distance)*self.window_width
-
+            heading_length_km = bs.traf.cas[int_idx]/1000 * HEADING_LENGTH_IN_SECONDS
+            heading_length_px = heading_length_km * PX2KM
+            heading_end_x = ((np.cos(np.deg2rad(int_hdg)) * heading_length_px))
+            heading_end_y = ((np.sin(np.deg2rad(int_hdg)) * heading_length_px))
             pygame.draw.line(canvas,
                 color,
                 (x_pos,y_pos),
@@ -397,3 +406,12 @@ class HorizontalCREnv(gym.Env):
         
     def close(self):
         bs.stack.stack('quit')
+        
+if __name__ == "__main__":
+    env = HorizontalCREnv(render_mode="human")
+    obs, info = env.reset()
+    for _ in range(1000):
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
+        if terminated or truncated:
+            obs, info = env.reset()

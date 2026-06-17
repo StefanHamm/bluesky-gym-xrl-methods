@@ -17,22 +17,25 @@ env = gym.make(env_name, render_mode=None)
 file_name = 'my_first_bsg_experiment.csv'
 logger = logger.CSVLoggerCallback('logs/', file_name)
 
-# Train a model for 'n' timesteps
+#Train a model for 'n' timesteps
 model = SAC('MultiInputPolicy', env=env, verbose=1)
-model.learn(total_timesteps=2000, callback=logger)
+model.learn(total_timesteps=2e6, callback=logger,progress_bar=True)
 model.save("models/SAC")
 env.close()
 
-model = SAC.load("models/SAC", env=env)
-env = gym.make(env_name, render_mode="human")
 
+env = gym.make(env_name, render_mode="human")
+model = SAC.load("models/SAC", env=env,device='cpu')
 n_eps = 10
 for i in range(n_eps):
     done = truncated = False
     obs, info = env.reset()
     while not (done or truncated):
+        
         action, _states = model.predict(obs, deterministic=True)
         obs, reward, done, truncated, info = env.step(action[()])
+        if done or truncated:
+            print(f"Episode {i+1} finished.")
 env.close()
 
 
