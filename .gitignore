@@ -13,3 +13,4 @@ download_job_artifacts.ps1
 *.gif
 *.ps1
 *.png
+*.pdf
