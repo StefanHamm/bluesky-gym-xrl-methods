@@ -84,6 +84,8 @@ def main():
     
     all_bg_shap = []
     all_safe_shap = []
+    all_bg_base = []
+    all_safe_base = []
     
     print(f"Starting data collection for {N_EPS} episodes...")
     
@@ -108,6 +110,11 @@ def main():
             # The shap_values index 0 corresponds to the single sample we passed (the observation)
             vals_bg = shap_bg.values[0]
             vals_safe = shap_safe.values[0]
+
+            # Extract base values (expected value or reference value)
+            # shape (n_actions,)
+            base_bg = shap_bg.base_values[0]
+            base_safe = shap_safe.base_values[0]
             
             # We must ensure they have the same shape
             if vals_bg.shape != vals_safe.shape:
@@ -116,6 +123,8 @@ def main():
                 
             all_bg_shap.append(vals_bg)
             all_safe_shap.append(vals_safe)
+            all_bg_base.append(base_bg)
+            all_safe_base.append(base_safe)
             
             obs, reward, done, truncated, info = env.step(action)
             
@@ -204,22 +213,19 @@ def main():
         all_v2 = np.concatenate(reg_y)
         
         # Reference line
-        g_min = min(np.min(all_v1), np.min(all_v2))
-        g_max = max(np.max(all_v1), np.max(all_v2))
-        
-        # Add slight padding
-        span = g_max - g_min
-        if span == 0: span = 1.0
-        padding = span * 0.05
-        
-        plt.plot([g_min-padding, g_max+padding], [g_min-padding, g_max+padding], 'k--', alpha=0.5, zorder=0, label='y=x')
+        # Use simple fixed range since user wants -2 to 2 anyway
+        plt.plot([-2.5, 2.5], [-2.5, 2.5], 'k--', alpha=0.5, zorder=0, label='y=x')
         
         # Regression
         if len(all_v1) > 1:
             try:
                 slope, intercept = np.polyfit(all_v1, all_v2, 1)
                 print(f"Global Regression: y={slope:.4f}x + {intercept:.4f}")
-                x_vals = np.array([g_min-padding, g_max+padding])
+                
+                # Use fixed range for regression line display if we set manual limits, 
+                # but let's stick to extending across the plot area
+                # Since we are forcing x-axis to -2 to 2 later, we ensure line covers it
+                x_vals = np.array([-2.2, 2.2]) 
                 y_vals = slope * x_vals + intercept
                 plt.plot(x_vals, y_vals, 'k-', linewidth=2, label=f'Reg: y={slope:.2f}x+{intercept:.2f}', zorder=10)
             except Exception as e:
@@ -228,6 +234,11 @@ def main():
         plt.xlabel("Background Data SHAP")
         plt.ylabel("Safe State SHAP")
         plt.title(f"SHAP Correlation {title_suffix}")
+        
+        # Set fixed axis limits
+        plt.xlim(-2, 2)
+        plt.ylim(-2, 2)
+        
         plt.legend()
         plt.grid(True, alpha=0.3)
         
@@ -243,6 +254,85 @@ def main():
     
     # Generate filtered plot
     create_correlation_plot(bg_array, safe_array, "combined_filtered", " (>0.3 Influence)", threshold=0.3)
+    
+    # --- Base Value Correlation Plot ---
+    # Convert lists to arrays: (Total_Samples, n_outputs)
+    # Each entry in base list is shape (n_outputs,)
+    
+    try:
+        bg_base = np.vstack(all_bg_base)
+        safe_base = np.vstack(all_safe_base)
+    except Exception as e:
+        print(f"Could not stack base values: {e}")
+        return
+
+    print("--- Generating Plot: Base Values ---")
+    plt.figure(figsize=(10, 8))
+    colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
+    
+    reg_x = []
+    reg_y = []
+    has_data = False
+    
+    # Plot each output dimension
+    for dim in range(bg_base.shape[1]):
+        v1 = bg_base[:, dim]
+        v2 = safe_base[:, dim]
+        
+        valid_mask = ~np.isnan(v1) & ~np.isnan(v2)
+        v1 = v1[valid_mask]
+        v2 = v2[valid_mask]
+        
+        if len(v1) < 2:
+            continue
+            
+        has_data = True
+        reg_x.append(v1)
+        reg_y.append(v2)
+        
+        corr, p_value = pearsonr(v1, v2)
+        print(f"Base Value Dim {dim}: r={corr:.4f} (p={p_value:.4g})")
+        
+        color = colors[dim % len(colors)]
+        plt.scatter(v1, v2, alpha=0.3, s=15, edgecolors='none', color=color, label=f"Dim {dim} (r={corr:.2f})")
+
+    if has_data:
+        all_v1 = np.concatenate(reg_x)
+        all_v2 = np.concatenate(reg_y)
+        
+        # Reference line
+        g_min = min(np.min(all_v1), np.min(all_v2))
+        g_max = max(np.max(all_v1), np.max(all_v2))
+        
+        span = g_max - g_min
+        if span == 0: span = 1.0
+        padding = span * 0.05
+        
+        plt.plot([g_min-padding, g_max+padding], [g_min-padding, g_max+padding], 'k--', alpha=0.5, zorder=0, label='y=x')
+        
+        # Regression
+        if len(all_v1) > 1:
+            try:
+                slope, intercept = np.polyfit(all_v1, all_v2, 1)
+                print(f"Base Value Regression: y={slope:.4f}x + {intercept:.4f}")
+                x_vals = np.array([g_min-padding, g_max+padding])
+                y_vals = slope * x_vals + intercept
+                plt.plot(x_vals, y_vals, 'k-', linewidth=2, label=f'Reg: y={slope:.2f}x+{intercept:.2f}', zorder=10)
+            except Exception as e:
+                print(f"Could not fit regression line: {e}")
+
+    plt.xlabel("Background Data Base Value")
+    plt.ylabel("Safe State Base Value")
+    plt.title(f"SHAP Base Value Correlation")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    f_pdf = os.path.join(OUTPUT_FOLDER, "shap_correlation_base_values.pdf")
+    f_png = os.path.join(OUTPUT_FOLDER, "shap_correlation_base_values.png")
+    plt.savefig(f_pdf, format='pdf')
+    plt.savefig(f_png, format='png')
+    plt.close()
+    print(f"Saved base value correlation to {OUTPUT_FOLDER}")
 
 if __name__ == "__main__":
     main()
