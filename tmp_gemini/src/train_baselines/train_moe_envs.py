@@ -6,7 +6,9 @@ import gymnasium as gym
 from stable_baselines3 import SAC,PPO,TD3,DDPG,A2C
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.vec_env import SubprocVecEnv,VecMonitor
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import CheckpointCallback
 import argparse
 import sys
 import bluesky_gym
@@ -17,7 +19,6 @@ from bluesky_gym.utils import logger
 import numpy as np
 import random
 import torch
-from stable_baselines3.common.monitor import Monitor
 
 def set_global_seed(seed):
     np.random.seed(seed)
@@ -30,36 +31,27 @@ def set_global_seed(seed):
 bluesky_gym.register_envs()
 
 keywords_mapping = {
-    "PlanWaypointEnv-v0": ['waypoints_completed'],
-    "HorizontalCREnv-v0": ['total_intrusions','average_drift'],
-    "SectorCREnv-v0": ['total_intrusions','average_drift'],
-    "StaticObstacleEnv-v0": ['crashed','average_drift','waypoint_reached'],
-    "StaticObstacleEnv-v1": ['crashed','average_drift','waypoint_reached'],
-    "VerticalCREnv-v0": ['total_intrusions', 'final_altitude'],
-    "DescentEnv-v0": ['final_altitude'],
-    "MergeEnv-v0": ['faf_reach', 'average_drift', 'total_intrusions']
+    "FreeFlightCREnv-v0": ['total_intrusions'],
+    "PlanWaypointEnv-v2": ['waypoints_completed'],
+    "PlanWaypointEvadeEnv-v0": ['waypoints_completed','total_intrusions']
+    # Add more mappings for other environments as needed
 }
 
 
-# all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
-# all_envs = ["VerticalCREnv-v0"]
-#all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0","VerticalCREnv-v0"]
-all_envs = ["DescentEnv-v0", "VerticalCREnv-v0", "StaticObstacleEnv-v0", "MergeEnv-v0", "StaticObstacleEnv-v1"]
+all_envs = ["FreeFlightCREnv-v0","PlanWaypointEnv-v2","PlanWaypointEvadeEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
-#algorithms = [SAC, TD3]
 
-def make_env():
+def make_env(logger_path=None):
     """
     Utility function for multiprocessed env.
     """
     if args.workdir:
         os.makedirs(args.workdir, exist_ok=True)
     # ...existing code...
-    if env_name in ["StaticObstacleEnv-v0", "StaticObstacleEnv-v1", "VerticalCREnv-v0"]:
+    if env_name == "SectorCREnv-v0":
         env = gym.make(env_name, render_mode=None)
     else:
         env = gym.make(env_name, render_mode=None, workdir=args.workdir)
-
     return env
 
 
@@ -96,7 +88,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     print(f"--- Starting Job: {algorithm.__name__} on {env_name} ---")
-
+    print(f"{args.total_timesteps}")
 
     # create a folder called vecEnvLogs and store the logs there if it is false store it in singleEnvLogs
     if args.make_vec_env:
@@ -115,27 +107,35 @@ if __name__ == "__main__":
         if args.make_vec_env:
             print("Using vectorized environment")
             env = make_vec_env(make_env,seed=args.env_seed, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
-            env = VecMonitor(env, filename=log_file_path,info_keywords=keywords_mapping[env_name])
+            env = VecMonitor(env, filename=log_file_path, info_keywords=keywords_mapping.get(env_name, []))
         else:
             print("Using single environment")
-            env = make_env()
+            env = make_env(logger_path=log_file_path)
+            env = Monitor(env, log_file_path, info_keywords=keywords_mapping.get(env_name, []))
             env.reset(seed=args.env_seed)
-            env = Monitor(env,filename=log_file_path, info_keywords=tuple(keywords_mapping[env_name]))
         
     
         policy_type = "MultiInputPolicy"
         
-        model = algorithm(policy_type, env, verbose=1, learning_rate=3e-4,
-            seed=args.model_seed,
-            tensorboard_log=f"./logs/tensorboard/{env_name}/")
+        model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed,device="cuda" if torch.cuda.is_available() else "cpu")
         
-        try:
-            model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
-        except KeyboardInterrupt:
-            print("Training interrupted. Saving intermediate model...")
-        finally:
-            model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
-            env.close()
+        # # Calculate frequency roughly equivalent to 100k timesteps
+        # n_envs = args.num_cpu if args.make_vec_env else 1
+        # save_freq = max(100000 // n_envs, 1)
+        
+        # # Save checkpoints
+        # checkpoint_dir = f"models/{args.jobid}/{env_name}/checkpoints"
+        # checkpoint_callback = CheckpointCallback(
+        #     save_freq=save_freq,
+        #     save_path=checkpoint_dir,
+        #     name_prefix=f"{env_name}_{str(algorithm.__name__)}_{suffix}_baseline",
+        #     verbose=1
+        # )
+        # if want to of checkpoints add callback= checkpoint_callback
+        model.learn(total_timesteps=int(args.total_timesteps),  progress_bar=True)
+        model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
+        
+        env.close()
 
 
 

@@ -33,20 +33,12 @@ keywords_mapping = {
     "PlanWaypointEnv-v0": ['waypoints_completed'],
     "HorizontalCREnv-v0": ['total_intrusions','average_drift'],
     "SectorCREnv-v0": ['total_intrusions','average_drift'],
-    "StaticObstacleEnv-v0": ['crashed','average_drift','waypoint_reached'],
-    "StaticObstacleEnv-v1": ['crashed','average_drift','waypoint_reached'],
-    "VerticalCREnv-v0": ['total_intrusions', 'final_altitude'],
-    "DescentEnv-v0": ['final_altitude'],
-    "MergeEnv-v0": ['faf_reach', 'average_drift', 'total_intrusions']
+    "StaticObstacleEnv-v0": ['crashed','average_drift','waypoint_reached']
 }
 
 
-# all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
-# all_envs = ["VerticalCREnv-v0"]
-#all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0","VerticalCREnv-v0"]
-all_envs = ["DescentEnv-v0", "VerticalCREnv-v0", "StaticObstacleEnv-v0", "MergeEnv-v0", "StaticObstacleEnv-v1"]
+all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
-#algorithms = [SAC, TD3]
 
 def make_env():
     """
@@ -55,7 +47,7 @@ def make_env():
     if args.workdir:
         os.makedirs(args.workdir, exist_ok=True)
     # ...existing code...
-    if env_name in ["StaticObstacleEnv-v0", "StaticObstacleEnv-v1", "VerticalCREnv-v0"]:
+    if env_name == "StaticObstacleEnv-v0":
         env = gym.make(env_name, render_mode=None)
     else:
         env = gym.make(env_name, render_mode=None, workdir=args.workdir)
@@ -120,22 +112,18 @@ if __name__ == "__main__":
             print("Using single environment")
             env = make_env()
             env.reset(seed=args.env_seed)
-            env = Monitor(env,filename=log_file_path, info_keywords=tuple(keywords_mapping[env_name]))
+            env = Monitor(env,filename=log_file_path, info_keywords=keywords_mapping[env_name])
         
     
         policy_type = "MultiInputPolicy"
         
-        model = algorithm(policy_type, env, verbose=1, learning_rate=3e-4,
-            seed=args.model_seed,
-            tensorboard_log=f"./logs/tensorboard/{env_name}/")
+        model = algorithm(policy_type, env, verbose=0, learning_rate=3e-4, seed=args.model_seed)
         
-        try:
-            model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
-        except KeyboardInterrupt:
-            print("Training interrupted. Saving intermediate model...")
-        finally:
-            model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
-            env.close()
+        
+        model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
+        model.save(f"models/{args.jobid}/{env_name}/{env_name}_{str(algorithm.__name__)}_{suffix}_baseline_model_mp")
+        
+        env.close()
 
 
 

@@ -1,0 +1,12 @@
+name: blueskyGym
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - sb3-contrib
+      - scienceplots
+      - stable-baselines3[extra]
+      - shap
+      - imageio

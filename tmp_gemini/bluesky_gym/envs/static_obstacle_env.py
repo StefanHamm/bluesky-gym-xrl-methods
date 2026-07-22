@@ -38,22 +38,13 @@ NUM_WAYPOINTS = 1
 OBSTACLE_AREA_RANGE = (50, 1000) # In NM^2
 CENTER = (51.990426702297746, 4.376124857109851) # TU Delft AE Faculty coordinates
 
-# minimum distance between the aircraft spawn position and the obstacle edge
-SPAWN_CLEARANCE_KM = 25
-
 
 MAX_DISTANCE = 350 # width of screen in km
 
 # The line will represent where the plane will be in this many seconds if it keeps its current heading
 HEADING_LENGTH_IN_SECONDS = 240
 
-
-#LIDAR Basedd
-RAYS = 15
-DEGREE_RANGE = 180
-RAYS_PER_DEGREE = RAYS/DEGREE_RANGE
-
-class StaticObstacleEnvV1(gym.Env):
+class StaticObstacleEnv(gym.Env):
     """ 
     Static Obstacle Conflict Resolution Environment
 
@@ -63,7 +54,7 @@ class StaticObstacleEnvV1(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
 
-    def __init__(self, render_mode=None, debug_lidar: bool = False):
+    def __init__(self, render_mode=None):
         self.window_width = 512 # pixels
         self.window_height = 512 # pixels
         self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
@@ -73,7 +64,10 @@ class StaticObstacleEnvV1(gym.Env):
                 "destination_waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (1,), dtype=np.float64),
                 "destination_waypoint_cos_drift": spaces.Box(-np.inf, np.inf, shape = (1,), dtype=np.float64),
                 "destination_waypoint_sin_drift": spaces.Box(-np.inf, np.inf, shape = (1,), dtype=np.float64),
-                "lidar": spaces.Box(0.0, 1.0, shape=(RAYS,), dtype=np.float64)
+                "restricted_area_radius": spaces.Box(0, 1, shape = (NUM_OBSTACLES,), dtype=np.float64),
+                "restricted_area_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_OBSTACLES, ), dtype=np.float64),
+                "cos_difference_restricted_area_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_OBSTACLES,), dtype=np.float64),
+                "sin_difference_restricted_area_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_OBSTACLES,), dtype=np.float64)
 
             }
         )
@@ -82,7 +76,6 @@ class StaticObstacleEnvV1(gym.Env):
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
-        self.debug_lidar = debug_lidar
 
         # initialize bluesky as non-networked simulation node
         if bs.sim is None:
@@ -98,11 +91,6 @@ class StaticObstacleEnvV1(gym.Env):
         self.average_drift = np.array([])
 
         self.obstacle_names = []
-        # keep obstacle vertices in lat/lon; segments are computed relative to
-        # the current aircraft position inside `_get_obs` to support moving origin
-        self.obstacle_vertices = []
-        self.obstacle_segments = None
-        self.lidar_ray_ends = None
 
         self.window = None
         self.clock = None
@@ -185,53 +173,26 @@ class StaticObstacleEnvV1(gym.Env):
             bs.tools.areafilter.deleteArea(name)
 
         self.obstacle_names = []
+        self.obstacle_vertices = []
         self.obstacle_radius = []
 
-        ac_idx = bs.traf.id2idx('KL001')
-        spawn_lat = bs.traf.lat[ac_idx]
-        spawn_lon = bs.traf.lon[ac_idx]
-
-        self.obstacle_centre_lat = []
-        self.obstacle_centre_lon = []
+        self._generate_coordinates_centre_obstacles(num_obstacles = NUM_OBSTACLES)
 
         for i in range(NUM_OBSTACLES):
-            accepted = False
-            loop_counter = 0
-            while not accepted:
-                loop_counter += 1
-                obstacle_dis_from_reference = self.np_random.integers(OBSTACLE_DISTANCE_MIN, OBSTACLE_DISTANCE_MAX)
-                obstacle_hdg_from_reference = self.np_random.integers(0, 360)
-                centre_lat, centre_lon = fn.get_point_at_distance(spawn_lat, spawn_lon, obstacle_dis_from_reference, obstacle_hdg_from_reference)
-                centre_obst = (centre_lat, centre_lon)
-                _, p, R = self._generate_polygon(centre_obst)
+            centre_obst = (self.obstacle_centre_lat[i], self.obstacle_centre_lon[i])
+            _, p, R = self._generate_polygon(centre_obst)
+            
+            points = [coord for point in p for coord in point] # Flatten the list of points
+            poly_name = 'restricted_area_' + str(i+1)
+            bs.tools.areafilter.defineArea(poly_name, 'POLY', points)
+            self.obstacle_names.append(poly_name)
 
-                centre_dist_nm = bs.tools.geo.kwikqdrdist(spawn_lat, spawn_lon, centre_obst[0], centre_obst[1])[1]
-                centre_dist_km = centre_dist_nm * NM2KM
-                obstacle_edge_clearance_km = centre_dist_km - (R * NM2KM)
-
-                if obstacle_edge_clearance_km < SPAWN_CLEARANCE_KM:
-                    continue
-
-                points = [coord for point in p for coord in point] # Flatten the list of points
-                poly_name = 'restricted_area_' + str(i+1)
-                bs.tools.areafilter.defineArea(poly_name, 'POLY', points)
-                self.obstacle_names.append(poly_name)
-                self.obstacle_centre_lat.append(centre_lat)
-                self.obstacle_centre_lon.append(centre_lon)
-
-                obstacle_vertices_coordinates = []
-                for k in range(0,len(points),2):
-                    obstacle_vertices_coordinates.append([points[k], points[k+1]])
-                
-                self.obstacle_vertices.append(obstacle_vertices_coordinates)
-                self.obstacle_radius.append(R)
-                accepted = True
-
-                if loop_counter > 1000:
-                    raise Exception("Unable to spawn obstacles with sufficient clearance from the aircraft start position.")
-
-        # segments will be computed on-the-fly in `_get_obs` relative to AC
-        self.obstacle_segments = None
+            obstacle_vertices_coordinates = []
+            for k in range(0,len(points),2):
+                obstacle_vertices_coordinates.append([points[k], points[k+1]])
+            
+            self.obstacle_vertices.append(obstacle_vertices_coordinates)
+            self.obstacle_radius.append(R)
 
     def _generate_waypoint(self, acid = 'KL001'):
         # original _generate_waypoints function from horizotal_cr_env
@@ -312,65 +273,18 @@ class StaticObstacleEnvV1(gym.Env):
             self.obstacle_centre_cos_bearing.append(np.cos(np.deg2rad(bearing)))
             self.obstacle_centre_sin_bearing.append(np.sin(np.deg2rad(bearing)))
 
-        # --- LIDAR computation: build rays and test intersections vectorized ---
-        # convert obstacle polygons (lat/lon) to local NM coordinates centered on AC
-        obs_segs_list = []
-        for vertices in self.obstacle_vertices:
-            # vertices: list of [lat, lon]
-            pts_nm = [fn.latlong_to_nm(np.array([bs.traf.lat[ac_idx], bs.traf.lon[ac_idx]]), np.array([v[0], v[1]])) for v in vertices]
-            if len(pts_nm) >= 2:
-                segs = fn.polygon_to_segments(np.array(pts_nm))
-                obs_segs_list.append(segs)
-
-        if len(obs_segs_list) > 0:
-            all_obs_segs = np.vstack(obs_segs_list)
-        else:
-            all_obs_segs = np.zeros((0,4), dtype=float)
-
-        # build rays as segments from origin (0,0) to end point in NM
-        ray_angles = (np.linspace(-DEGREE_RANGE/2, DEGREE_RANGE/2, RAYS) + self.ac_hdg) % 360
-        ray_len_nm = MAX_DISTANCE / NM2KM
-        ang_rad = np.deg2rad(ray_angles)
-        ray_ends_x = ray_len_nm * np.cos(ang_rad)  # north component
-        ray_ends_y = ray_len_nm * np.sin(ang_rad)  # east component
-        rays = np.column_stack((np.zeros(RAYS), np.zeros(RAYS), ray_ends_x, ray_ends_y))
-
-        if all_obs_segs.shape[0] == 0:
-            lidar_ranges = np.ones(RAYS, dtype=float)
-            t_min = np.full(RAYS, np.nan)
-        else:
-            # get parametric t along each ray for intersections
-            t_mat, _, mask = fn.segments_intersection_params(rays, all_obs_segs)
-            # mask is (RAYS, M)
-            # set t where no intersection to nan, then find min positive t per ray
-            t_mat[~mask] = np.nan
-            t_min = np.nanmin(t_mat, axis=1)
-            # where all values are nan, nanmin returns nan
-            lidar_ranges = np.where(np.isnan(t_min), 1.0, np.clip(t_min * (ray_len_nm * NM2KM) / MAX_DISTANCE, 0.0, 1.0))
-
-        # compute actual ray end lat/lon for rendering when debug enabled
-        # t_min NaN -> full range
-        effective_t = np.where(np.isnan(t_min), 1.0, t_min)
-        distances_nm = effective_t * ray_len_nm
-        distances_km = distances_nm * NM2KM
-        ray_angles = (np.linspace(-DEGREE_RANGE/2, DEGREE_RANGE/2, RAYS) + self.ac_hdg) % 360
-        ends_lat = []
-        ends_lon = []
-        for ang, d_km in zip(ray_angles, distances_km):
-            lat_e, lon_e = fn.get_point_at_distance(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], d_km, ang)
-            ends_lat.append(lat_e)
-            ends_lon.append(lon_e)
-        self.lidar_ray_ends = (np.array(ends_lat), np.array(ends_lon))
-
-
         observation = {
                 "destination_waypoint_distance": np.array(self.destination_waypoint_distance)/WAYPOINT_DISTANCE_MAX,
                 "destination_waypoint_cos_drift": np.array(self.destination_waypoint_cos_drift),
                 "destination_waypoint_sin_drift": np.array(self.destination_waypoint_sin_drift),
-                "lidar": np.array(lidar_ranges)
+                "restricted_area_radius": np.array(self.obstacle_radius)/(OBSTACLE_AREA_RANGE[0]),
+                "restricted_area_distance": np.array(self.obstacle_centre_distance)/WAYPOINT_DISTANCE_MAX,
+                "cos_difference_restricted_area_pos": np.array(self.obstacle_centre_cos_bearing),
+                "sin_difference_restricted_area_pos": np.array(self.obstacle_centre_sin_bearing),
             }
 
         return observation
+    
     def _get_info(self):
         return {
             'total_reward': self.total_reward,
@@ -483,16 +397,6 @@ class StaticObstacleEnvV1(gym.Env):
             width = 1
         )
 
-        # draw lidar rays if debug enabled
-        if self.debug_lidar and self.lidar_ray_ends is not None:
-            lat_ends, lon_ends = self.lidar_ray_ends
-            for lat_e, lon_e in zip(lat_ends, lon_ends):
-                qdr_e, dis_e = bs.tools.geo.kwikqdrdist(screen_coords[0], screen_coords[1], lat_e, lon_e)
-                dis_e = dis_e * NM2KM
-                x_e = (np.sin(np.deg2rad(qdr_e)) * dis_e)/MAX_DISTANCE*self.window_width
-                y_e = (-np.cos(np.deg2rad(qdr_e)) * dis_e)/MAX_DISTANCE*self.window_width
-                pygame.draw.line(canvas, (0,255,0), (x_actor, y_actor), (x_e, y_e), width=1)
-
         # draw obstacles
         for vertices in self.obstacle_vertices:
             points = []
@@ -544,5 +448,3 @@ class StaticObstacleEnvV1(gym.Env):
 
     def close(self):
         bs.stack.stack('quit')
-        
-        

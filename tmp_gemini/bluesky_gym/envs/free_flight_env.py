@@ -1,0 +1,484 @@
+import numpy as np
+import pygame
+
+import bluesky as bs
+import bluesky_gym.envs.common.functions as fn
+from bluesky_gym.utils.constants import HEADING_LENGTH_IN_SECONDS
+from bluesky_gym.envs.base_env import BaseEnv
+import gymnasium as gym
+from gymnasium import spaces
+
+DISTANCE_MARGIN = 5 # km
+#REACH_REWARD = 1
+
+
+#DRIFT_PENALTY = -0.1
+INTRUSION_PENALTY = -15
+BUFFER_INTRUSION_PENALTY = -5
+CRASH_PENALTY = -200
+#ACTION_PENALTY = -0.1
+ACTION_PENALTY = -0.05
+HEADING_CHANGE_PENALTY = -2
+
+NUM_INTRUDERS = 5
+NUM_WAYPOINTS = 1
+INTRUSION_DISTANCE = 5 # NM
+CRASH_DISTANCE = 1 # NM
+BUFFER_INTURSION_DISTANCE = 10 # NM
+
+WAYPOINT_DISTANCE_MIN = 100
+WAYPOINT_DISTANCE_MAX = 150
+
+SENSOR_RANGE = 250 #KM
+
+D_HEADING = 45
+
+AC_SPD = 150
+
+NM2KM = 1.852
+
+ACTION_FREQUENCY = 10
+
+class FreeFlightCREnv(BaseEnv):
+    """ 
+    Free Flight Conflict Resolution Environment
+
+    TODO:
+    - look at adding waypoints instead of staying straight
+    """
+    metadata = {"render_modes": ["rgb_array","human"], "render_fps": 120}
+
+    def __init__(self, render_mode=None,workdir=None,fps=5,export_gifs_path=None):
+        super().__init__(fps=fps,export_gifs_path=export_gifs_path)
+        self.window_width = 512
+        self.window_height = 512
+        self.window_size = (self.window_width, self.window_height) # Size of the rendered environment
+
+
+        # Observation space should include ownship and intruder info
+        # Maybe later also have an option for CNN based intruder info, could be interesting
+        self.observation_space = spaces.Dict(
+            {
+                "intruder_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "cos_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "sin_difference_pos": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "x_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "y_difference_speed": spaces.Box(-np.inf, np.inf, shape = (NUM_INTRUDERS,), dtype=np.float64),
+                "cos_own_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                "sin_own_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
+                #"waypoint_distance": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
+                #"cos_drift": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64),
+                #"sin_drift": spaces.Box(-np.inf, np.inf, shape = (NUM_WAYPOINTS,), dtype=np.float64)
+            }
+        )
+       
+        self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
+
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self.render_mode = render_mode
+
+        # initialize bluesky as non-networked simulation node
+        if bs.sim is None:
+            bs.init(mode='sim', detached=True, workdir=workdir)
+
+        # set correct sim speed
+        bs.stack.stack('DT 5;FF')
+
+        # initialize values used for logging -> input in _get_info
+        self.total_reward = 0
+        self.crash = False
+        self.total_intrusions = 0
+        self.average_drift = np.array([])
+
+        self.window = None
+        self.clock = None
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        
+        bs.traf.reset()
+        self.step_counter = 0
+        self.total_reward = 0
+        self.total_intrusions = 0
+        self.average_drift = np.array([])
+
+        bs.traf.cre('KL001',actype="A320",acspd=AC_SPD)
+
+        self._generate_conflicts()
+        #self._generate_waypoint()
+        observation = self._get_obs()
+        info = self._get_info()
+
+        # if self.render_mode == "human":
+        #     self._render_frame()
+
+        return observation, info
+    
+    def step(self, action):
+        
+        self._get_action(action)
+        self.step_counter += 1
+
+        action_frequency = ACTION_FREQUENCY
+        for i in range(action_frequency):
+            bs.sim.step()
+            if self.render_mode == "human":
+                observation = self._get_obs()
+                self._render_frame()
+
+        observation = self._get_obs()
+        reward, terminated = self._get_reward()
+        
+        info = self._get_info()
+
+        # bluesky reset?? bs.sim.reset()
+        if terminated:
+            for acid in bs.traf.id:
+                idx = bs.traf.id2idx(acid)
+                bs.traf.delete(idx)
+
+        return observation, reward, terminated, False, info
+
+    def _generate_conflicts(self, acid = 'KL001'):
+        target_idx = bs.traf.id2idx(acid)
+        for i in range(NUM_INTRUDERS):
+           self._create_single_conflict(i,target_idx)
+           
+    def _create_single_conflict(self,int_idx,target_idx):
+        dpsi = self.np_random.integers(0,360)
+        cpa = self.np_random.integers(0,INTRUSION_DISTANCE)
+        tlosh = self.np_random.integers(200,1000)
+        bs.traf.creconfs(acid=f'{int_idx}',actype="A320",targetidx=target_idx,dpsi=dpsi,dcpa=cpa,tlosh=tlosh)
+    # def _generate_waypoint(self, acid = 'KL001'):
+    #     self.wpt_lat = []
+    #     self.wpt_lon = []
+    #     self.wpt_reach = []
+    #     for i in range(NUM_WAYPOINTS):
+    #         wpt_dis_init = self.np_random.integers(WAYPOINT_DISTANCE_MIN, WAYPOINT_DISTANCE_MAX)
+    #         wpt_hdg_init = 0
+
+    #         ac_idx = bs.traf.id2idx(acid)
+
+    #         wpt_lat, wpt_lon = fn.get_point_at_distance(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], wpt_dis_init, wpt_hdg_init)    
+    #         self.wpt_lat.append(wpt_lat)
+    #         self.wpt_lon.append(wpt_lon)
+    #         self.wpt_reach.append(0)
+
+    def _get_obs(self):
+        ac_idx = bs.traf.id2idx('KL001')
+
+        self.intruder_distance = []
+        self.cos_bearing = []
+        self.sin_bearing = []
+        self.x_difference_speed = []
+        self.y_difference_speed = []
+
+        # self.waypoint_distance = []
+        # self.wpt_qdr = []
+        # self.cos_drift = []
+        # self.sin_drift = []
+        # self.drift = []
+
+        self.ac_hdg = bs.traf.hdg[ac_idx]
+
+        for i in range(NUM_INTRUDERS):
+            int_idx = bs.traf.id2idx(f'{i}')
+            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
+        
+            self.intruder_distance.append(int_dis * NM2KM)
+
+            bearing = self.ac_hdg - int_qdr
+            bearing = fn.bound_angle_positive_negative_180(bearing)
+
+            self.cos_bearing.append(np.cos(np.deg2rad(bearing)))
+            self.sin_bearing.append(np.sin(np.deg2rad(bearing)))
+
+            heading_difference = bs.traf.hdg[ac_idx] - bs.traf.hdg[int_idx]
+            x_dif = - np.cos(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
+            y_dif = bs.traf.gs[ac_idx] - np.sin(np.deg2rad(heading_difference)) * bs.traf.gs[int_idx]
+
+            self.x_difference_speed.append(x_dif)
+            self.y_difference_speed.append(y_dif)
+
+
+        # for lat, lon in zip(self.wpt_lat, self.wpt_lon):
+            
+        #     self.ac_hdg = bs.traf.hdg[ac_idx]
+        #     wpt_qdr, wpt_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], lat, lon)
+        
+        #     self.waypoint_distance.append(wpt_dis * NM2KM)
+        #     self.wpt_qdr.append(wpt_qdr)
+
+        #     drift = self.ac_hdg - wpt_qdr
+        #     drift = fn.bound_angle_positive_negative_180(drift)
+
+        #     self.drift.append(drift)
+        #     self.cos_drift.append(np.cos(np.deg2rad(drift)))
+        #     self.sin_drift.append(np.sin(np.deg2rad(drift)))
+        
+        current_hdg = bs.traf.hdg[ac_idx]
+        current_hdg_rad = np.deg2rad(current_hdg)
+        cos_own_heading = np.cos(current_hdg_rad)
+        sin_own_heading = np.sin(current_hdg_rad)
+
+        observation = {
+                "intruder_distance": np.clip(np.array(self.intruder_distance)/SENSOR_RANGE, 0, 1),
+                "cos_difference_pos": np.array(self.cos_bearing),
+                "sin_difference_pos": np.array(self.sin_bearing),
+                "x_difference_speed": np.array(self.x_difference_speed)/AC_SPD,
+                "y_difference_speed": np.array(self.y_difference_speed)/AC_SPD,
+                "sin_own_heading": np.array([sin_own_heading]),
+                "cos_own_heading": np.array([cos_own_heading])
+                
+                # "waypoint_distance": np.array(self.waypoint_distance)/WAYPOINT_DISTANCE_MAX,
+                # "cos_drift": np.array(self.cos_drift),
+                # "sin_drift": np.array(self.sin_drift)
+            }
+        
+        return observation
+    
+    def _get_info(self):
+        # Here you implement any additional info that you want to return after a step,
+        # but that should not be used by the agent for decision making, so used for logging and debugging purposes
+        # for now just have 10, because it crashed if I gave none for some reason.
+        return {
+            'total_reward': self.total_reward,
+            'total_intrusions': self.total_intrusions
+            # 'average_drift': self.average_drift.mean()
+        }
+        
+    
+    def _get_action_penalty(self):
+        return np.abs(self.current_action[0])*ACTION_PENALTY
+    
+    def _get_heading_change_penalty(self):
+        ac_idx = bs.traf.id2idx('KL001')
+        cur_heading = bs.traf.hdg[ac_idx]
+        # default heading is 0 
+        # convert 0 -360 to -180 - 180
+        cur_heading = fn.bound_angle_positive_negative_180(cur_heading) / 180 # scale to -1 to 1
+        return np.abs(cur_heading)*HEADING_CHANGE_PENALTY
+    
+
+    def _get_reward(self):
+
+        # Always return done as false, as this is a non-ending scenario with 
+        # new waypoints spawning continously
+        
+        terminated = False
+
+        #reach_reward = self._check_waypoint()
+        #drift_reward = self._check_drift()
+        intrusion_reward,terminated = self._check_intrusion()
+    
+        action_penalty = self._get_action_penalty()
+        heading_change_penalty = self._get_heading_change_penalty()
+        #early_termination_reward, early_terminated = self.terminate_early_reward()
+        
+
+        total_reward =  intrusion_reward + action_penalty + heading_change_penalty #+ reach_reward + drift_reward + early_termination_reward
+        self.total_reward += total_reward
+        return total_reward, terminated
+
+        
+    # def _check_waypoint(self):
+    #     reward = 0
+    #     index = 0
+    #     for distance in self.waypoint_distance:
+    #         if distance < DISTANCE_MARGIN and self.wpt_reach[index] != 1:
+    #             self.wpt_reach[index] = 1
+    #             reward += REACH_REWARD
+    #             index += 1
+    #         else:
+    #             reward += 0
+    #             index += 1
+    #     return reward
+
+    # def _check_drift(self):
+    #     drift = abs(np.deg2rad(self.drift[0]))
+    #     self.average_drift = np.append(self.average_drift, drift)
+    #     return drift * DRIFT_PENALTY
+    
+    # def terminate_early_reward(self):
+        
+    #     scaledDIST = np.array(self.intruder_distance)/WAYPOINT_DISTANCE_MAX
+    #     # if all sclaed DIST are above 1, then we can terminate early, as there is no chance of conflict anymore
+    #     if all(scaledDIST > 1):
+    #         # caluclate teh lump sum of the remaining alive reward. = number of steps left * alive reward per step
+    #         remaining_steps = self.spec.max_episode_steps - self.step_counter
+    #         lump_sum = remaining_steps * self._get_alive_reward()
+            
+            
+    #         return lump_sum, True
+    #     return 0,False
+
+
+    def _check_intrusion(self):
+        terminated = False
+        ac_idx = bs.traf.id2idx('KL001')
+        reward = 0
+        for i in range(NUM_INTRUDERS):
+            int_idx = i+1
+            _, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
+            
+            if int_dis < CRASH_DISTANCE:
+                self.crash = True
+                reward += CRASH_PENALTY
+                terminated = True
+                break
+            if int_dis < INTRUSION_DISTANCE:
+                self.total_intrusions += 1
+                reward += INTRUSION_PENALTY
+            elif int_dis < BUFFER_INTURSION_DISTANCE:
+                # scale the penalty linearly between intrusion distance and buffer intrusion distance
+                scale_factor = (BUFFER_INTURSION_DISTANCE-int_dis)/(BUFFER_INTURSION_DISTANCE-INTRUSION_DISTANCE)
+                reward += BUFFER_INTRUSION_PENALTY * scale_factor
+        return reward, terminated
+    
+    def _get_action(self,action):
+        self.current_action = action
+        action = self.ac_hdg + action * D_HEADING
+
+        bs.stack.stack(f"HDG KL001 {action[0]}")
+        
+
+    def _render_frame(self):
+        if self.window is None and self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.window = pygame.display.set_mode(self.window_size)
+
+        if self.clock is None and self.render_mode == "human":
+            self.clock = pygame.time.Clock()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                if self.window is not None:
+                    pygame.display.quit()
+                self.close()
+                exit()
+
+        max_distance = 200 # width of screen in km
+
+        canvas = pygame.Surface(self.window_size)
+        canvas.fill((135,206,235))
+
+        # draw ownship
+        ac_idx = bs.traf.id2idx('KL001')
+        ac_length = 8
+        heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
+        heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * ac_length)/max_distance)*self.window_width
+
+        pygame.draw.line(canvas,
+            (0,0,0),
+            (self.window_width/2-heading_end_x/2,self.window_height/2+heading_end_y/2),
+            ((self.window_width/2)+heading_end_x/2,(self.window_height/2)-heading_end_y/2),
+            width = 4
+        )
+
+        # draw heading line
+        # heading_length = 50
+        # heading_end_x = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        # heading_end_y = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length)/max_distance)*self.window_width
+        ac_spd = bs.traf.cas[ac_idx]
+        km2px = self.window_width / max_distance
+        heading_length_km = HEADING_LENGTH_IN_SECONDS * ac_spd / 1000
+        heading_length_px = heading_length_km * km2px
+        
+        
+        heading_end_x = np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
+        heading_end_y = np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
+
+
+        pygame.draw.line(canvas,
+            (0,0,0),
+            (self.window_width/2,self.window_height/2),
+            ((self.window_width/2)+heading_end_x,(self.window_height/2)-heading_end_y),
+            width = 1
+        )
+
+        # draw intruders
+        ac_length = 3
+
+        for i in range(NUM_INTRUDERS):
+            int_idx = i+1
+            int_hdg = bs.traf.hdg[int_idx]
+            heading_end_x = ((np.sin(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
+            heading_end_y = ((np.cos(np.deg2rad(int_hdg)) * ac_length)/max_distance)*self.window_width
+
+            int_qdr, int_dis = bs.tools.geo.kwikqdrdist(bs.traf.lat[ac_idx], bs.traf.lon[ac_idx], bs.traf.lat[int_idx], bs.traf.lon[int_idx])
+
+            # determine color
+            if int_dis < INTRUSION_DISTANCE:
+                color = (220,20,60)
+            else: 
+                color = (80,80,80)
+
+            x_pos = (self.window_width/2)+(np.sin(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_width
+            y_pos = (self.window_height/2)-(np.cos(np.deg2rad(int_qdr))*(int_dis * NM2KM)/max_distance)*self.window_height
+
+            pygame.draw.line(canvas,
+                color,
+                (x_pos,y_pos),
+                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+                width = 4
+            )
+
+            # draw heading line
+            int_spd = bs.traf.cas[int_idx]  
+            heading_length_km = HEADING_LENGTH_IN_SECONDS * int_spd / 1000
+            heading_length_px = heading_length_km * km2px
+            heading_end_x = np.sin(np.deg2rad(int_hdg)) * heading_length_px
+            heading_end_y = np.cos(np.deg2rad(int_hdg)) * heading_length_px
+
+            pygame.draw.line(canvas,
+                color,
+                (x_pos,y_pos),
+                ((x_pos)+heading_end_x,(y_pos)-heading_end_y),
+                width = 1
+            )
+
+            pygame.draw.circle(
+                canvas, 
+                color,
+                (x_pos,y_pos),
+                radius = (INTRUSION_DISTANCE*NM2KM/max_distance)*self.window_width,
+                width = 2
+            )
+
+            # import code
+            # code.interact(local=locals())
+
+        # # draw target waypoint
+        # for qdr, dis, reach in zip(self.wpt_qdr, self.waypoint_distance, self.wpt_reach):
+
+        #     circle_x = ((np.cos(np.deg2rad(qdr)) * dis)/max_distance)*self.window_width
+        #     circle_y = ((np.sin(np.deg2rad(qdr)) * dis)/max_distance)*self.window_width
+
+        #     if reach:
+        #         color = (155,155,155)
+        #     else:
+        #         color = (255,255,255)
+
+        #     pygame.draw.circle(
+        #         canvas, 
+        #         color,
+        #         ((self.window_width/2)+circle_x,(self.window_height/2)-circle_y),
+        #         radius = 4,
+        #         width = 0
+        #     )
+            
+        #     pygame.draw.circle(
+        #         canvas, 
+        #         color,
+        #         ((self.window_width/2)+circle_x,(self.window_height/2)-circle_y),
+        #         radius = (DISTANCE_MARGIN/max_distance)*self.window_width,
+        #         width = 2
+        #     )
+
+        self.window.blit(canvas, canvas.get_rect())
+        pygame.display.update()
+        self.clock.tick(self.metadata["render_fps"])
+        
+    def close(self):
+        bs.stack.stack('quit')

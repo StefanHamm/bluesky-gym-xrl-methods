@@ -1,0 +1,42 @@
+{
+  "config": "default_configs/20_stefan_hamm_10x10.json",
+  "ourairports": "ourairports/airports.csv",
+  "navdir": "test_navpoints",
+  "od_file": null,
+  "aircrafts_file": null,
+  "icao_only": true,
+  "airport_include": "LOWW,EDDB,LFPG,EDDF,LSZH,EHAM,EKCH",
+  "criterion": "rng",
+  "max_edge_km": 350.0,
+  "out_dir": "unparsed_experiment_data/00-0-CENTRAL-EUROPE-7x7-2019-06-01--2019-06-30-CAP-ENROUTE-1200-CLUSTERSIZE-1/navgraph",
+  "neighbor_index": "balltree",
+  "progress_interval": 5,
+  "enforce_connected": "true",
+  "connectivity_method": "mst",
+  "centroid_knn": 12,
+  "flat_out": true,
+  "altitude": "300",
+  "altitude_unit": "fl",
+  "grid_navpoints": "True",
+  "grid_nx": 30,
+  "grid_ny": 30,
+  "grid_prefix": "GRID",
+  "grid_region_name": null,
+  "grid_bounds": null,
+  "grid_rect_filter": "true",
+  "resolved_out_dir": "/home/thinklex/Documents/2026_not_for_dropbox/05_ASPaeroFlow_Data/ASPaeroFlow-DataGenerator/unparsed_experiment_data/00-0-CENTRAL-EUROPE-7x7-2019-06-01--2019-06-30-CAP-ENROUTE-1200-CLUSTERSIZE-1/navgraph",
+  "stats": {
+    "num_vertices_base": 907,
+    "num_vertices_layered": 907,
+    "num_edges_written": 3450,
+    "enforce_connected": true,
+    "altitude_levels_raw": [
+      300.0
+    ],
+    "altitude_levels_m": [
+      9144.0
+    ],
+    "num_levels": 1,
+    "altitude_ref_m": 9144.0
+  }
+}
