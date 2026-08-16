@@ -122,6 +122,16 @@ class SaliencyMergeControl(SaliencyMapV1Wrapper):
         pygame.draw.circle(canvas, c_faf, (cx, cy), radius=4, width=0)
         pygame.draw.circle(canvas, c_faf, (cx, cy), radius=(DISTANCE_MARGIN/max_dist)*w, width=2)
 
+        # 1.5. Merge Cone (Heading boundary lines)
+        cone_color = (255, 165, 0) # Orange, to avoid clashing with green/SHAP colors
+        cone_length = 5000
+        he_x_l = ((np.cos(np.deg2rad(180+135)) * cone_length)/max_dist)*w
+        he_y_l = ((np.sin(np.deg2rad(180+135)) * cone_length)/max_dist)*h
+        he_x_r = ((np.cos(np.deg2rad(180-135)) * cone_length)/max_dist)*w
+        he_y_r = ((np.sin(np.deg2rad(180-135)) * cone_length)/max_dist)*h
+        pygame.draw.line(canvas, cone_color, (cx, cy), (cx + he_x_l / 2, cy - he_y_l / 2), width=3)
+        pygame.draw.line(canvas, cone_color, (cx, cy), (cx + he_x_r / 2, cy - he_y_r / 2), width=3)
+
         # 2. Runway Target Line
         rwy_qdr, rwy_dis = bs.tools.geo.kwikqdrdist(self.unwrapped.wpt_lat, self.unwrapped.wpt_lon, RWY_LAT, RWY_LON)
         rwy_x = cx + (np.cos(np.deg2rad(rwy_qdr))*(rwy_dis * NM2KM)/max_dist)*w
@@ -136,15 +146,29 @@ class SaliencyMergeControl(SaliencyMapV1Wrapper):
         own_x = cx + (np.cos(np.deg2rad(own_qdr))*(own_dis * NM2KM)/max_dist)*w
         own_y = cy - (np.sin(np.deg2rad(own_qdr))*(own_dis * NM2KM)/max_dist)*h
         
-        hdg_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * 8)/max_dist)*w
-        hdg_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * 8)/max_dist)*w
+        # Future heading projection
+        PX2KM = w / max_dist
+        ac_spd = bs.traf.cas[ac_idx] # m/s
+        heading_length_km = ac_spd/1000 * HEADING_LENGTH_IN_SECONDS
+        heading_length_px = heading_length_km * PX2KM
+        own_fut_x = own_x + np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
+        own_fut_y = own_y - np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * heading_length_px
+        pygame.draw.line(canvas, (0, 0, 0), (own_x, own_y), (own_fut_x, own_fut_y), width=1)
+        
+        # Draw ownship distinctively
+        pygame.draw.circle(canvas, (255, 255, 255), (int(own_x), int(own_y)), radius=10, width=0)
+        
+        hdg_end_x = ((np.cos(np.deg2rad(bs.traf.hdg[ac_idx])) * 16)/max_dist)*w
+        hdg_end_y = ((np.sin(np.deg2rad(bs.traf.hdg[ac_idx])) * 16)/max_dist)*w
         
         c_own_body = self._get_diverging_color(phi_spd[7], max_spd, default=(0,0,0)) if self.xrl_rendering else (0,0,0)
-        pygame.draw.line(canvas, c_own_body, (own_x, own_y), (own_x + hdg_end_x/2, own_y - hdg_end_y/2), width=5)
+        pygame.draw.circle(canvas, c_own_body, (int(own_x), int(own_y)), radius=8, width=0)
+        pygame.draw.line(canvas, (0,0,0), (own_x, own_y), (own_x + hdg_end_x/2, own_y - hdg_end_y/2), width=3)
+        canvas.blit(self.hud_font.render("OWN", True, (0,0,0)), (own_x + 12, own_y - 12))
 
         # Route Target Line (Aircraft to FAF) colored by Drift
         c_drift_line = self._get_diverging_color(phi_hdg[5], max_hdg) if self.xrl_rendering else (255,255,255)
-        pygame.draw.line(canvas, c_drift_line, (own_x, own_y), (cx, cy), width=1)
+        pygame.draw.line(canvas, c_drift_line, (own_x, own_y), (cx, cy), width=2)
 
         # 4. Intruders (Coalitions 0-4)
         distances = bs.tools.geo.kwikdist_matrix(bs.traf.lat[0], bs.traf.lon[0], bs.traf.lat[1:], bs.traf.lon[1:])
