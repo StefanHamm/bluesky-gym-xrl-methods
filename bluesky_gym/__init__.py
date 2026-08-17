@@ -52,6 +52,12 @@ def register_envs():
     )
 
     register(
+        id="StaticObstacleEnv-v2",
+        entry_point="bluesky_gym.envs.static_obstacle_envV2:StaticObstacleEnvV2",
+        max_episode_steps=500,
+    )
+
+    register(
         id="MergeEnv-v0",
         entry_point="bluesky_gym.envs.merge_env:MergeEnv",
         max_episode_steps=50,

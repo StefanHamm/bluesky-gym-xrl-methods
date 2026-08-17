@@ -25,6 +25,7 @@ from bluesky_gym.utils.constants import NM2KM
 from bluesky_gym.wrappers.xrlMethods.state.saliency.horizontal_cr_env_saliency import SaliencyHorizontalControl
 from bluesky_gym.wrappers.xrlMethods.state.saliency.sector_cr_env_saliency import SaliencySectorControl
 from bluesky_gym.wrappers.xrlMethods.state.saliency.plan_waypoint_env_saliency import SaliencyPlanWaypoint
+from bluesky_gym.wrappers.xrlMethods.state.saliency.static_obstacle_envV2_saliency import SaliencyStaticObstacleControl
 from bluesky_gym.wrappers.xrlMethods.state.action.horizontal_cr_env_action_heatmap import ActionHeatmapWrapper
 from bluesky_gym.wrappers.xrlMethods.state.action.sector_cr_env_action_heatmap import ActionHeatmapWrapper as SectorActionHeatmapWrapper
 from bluesky_gym.wrappers.xrlMethods.state.action.plan_waypoint_env_action_heatmap import ActionHeatmapWrapper as PlanWaypointActionHeatmapWrapper
@@ -32,12 +33,12 @@ from bluesky_gym.wrappers.xrlMethods.state.action.plan_waypoint_env_action_heatm
 # Assuming src is in python path, e.g. run via python -m src.XRL.xrl or from root
 # We need to ensure import works.
 try:
-    from src.XRL.shapMethods.shap_explainers import runSafeStateExplainer, runBackgroundExplainer
+    from src.XRL.shapMethods.shap_explainers import runSafeStateExplainer, runBackgroundExplainer, runV2SafeStateExplainer
 except ImportError:
     # Try local import if running from same folder or adjust path
     import sys
     sys.path.append(os.path.join(os.path.dirname(__file__), "../../../"))
-    from src.XRL.shapMethods.shap_explainers import runSafeStateExplainer, runBackgroundExplainer
+    from src.XRL.shapMethods.shap_explainers import runSafeStateExplainer, runBackgroundExplainer, runV2SafeStateExplainer
 
 
 bluesky_gym.register_envs()
@@ -73,6 +74,13 @@ def get_safe_vals(env_name):
             "cos(track)": np.cos(track_rad),
             "sin(track)": np.sin(track_rad),
             "distances": (np.sqrt(D_NORTH**2 + D_EAST**2)-50000)/15000
+        }
+    elif env_name == 'StaticObstacleEnv-v2':
+        return {
+            "destination_waypoint_distance": 0.0,
+            "destination_waypoint_cos_drift": 1.0,
+            "destination_waypoint_sin_drift": 0.0,
+            "lidar": np.ones(30)
         }
     return {}
 
@@ -183,7 +191,7 @@ def main():
     # Defaults
     if not args.moe:
         if args.algo is None:
-            if 'Horizontal' in args.env or 'PlanWaypoint' in args.env:
+            if 'Horizontal' in args.env or 'PlanWaypoint' in args.env or 'StaticObstacle' in args.env:
                 args.algo = 'SAC'
             elif 'Sector' in args.env:
                 args.algo = 'TD3'
@@ -359,7 +367,9 @@ def main():
              # Note: SaliencyPlanWaypoint might not support plot_safe_path, check definition in other files if possible, or leave out if not sure.
              # Based on previous file, it was NOT passed.
              wrapper = SaliencyPlanWaypoint(env, safe_vals, args.debug, export_gifs_path=gif_folder, fps=5, color_mode=args.color_mode, plot_action_path=args.plot_action_path, model=model, xrl_rendering=xrl_render)
-        
+        elif args.env == 'StaticObstacleEnv-v2':
+            wrapper = SaliencyStaticObstacleControl(env, safe_vals, args.debug, export_gifs_path=gif_folder, fps=5, color_mode=args.color_mode, plot_action_path=args.plot_action_path, plot_safe_path=args.plot_safe_path, model=model, xrl_rendering=xrl_render)
+
     elif args.method == 'shap_background':
         # Load model with env
         print(f"Loading model with env context from: {model_path}")
@@ -407,7 +417,12 @@ def main():
             if args.method == 'shap_safe_state':
                 safe_vals = get_safe_vals(args.env)
                 baseline_action = [0.0] if args.env == 'PlanWaypointEnv-v0' else None
-                shap_values = runSafeStateExplainer(model, obs, safe_vals, baseline_action)
+                
+                if args.env == 'StaticObstacleEnv-v2':
+                    shap_values = runV2SafeStateExplainer(model, obs, safe_vals, baseline_action)
+                else:
+                    shap_values = runSafeStateExplainer(model, obs, safe_vals, baseline_action)
+                
                 obs, reward, done, truncated, info = wrapper.step(action[()], shap_values)
                 
             elif args.method == 'shap_background':

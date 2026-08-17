@@ -18,6 +18,7 @@ import numpy as np
 import random
 import torch
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import CheckpointCallback
 
 def set_global_seed(seed):
     np.random.seed(seed)
@@ -35,6 +36,7 @@ keywords_mapping = {
     "SectorCREnv-v0": ['total_intrusions','average_drift'],
     "StaticObstacleEnv-v0": ['crashed','average_drift','waypoint_reached'],
     "StaticObstacleEnv-v1": ['crashed','average_drift','waypoint_reached'],
+    "StaticObstacleEnv-v2": ['crashed','average_drift','waypoint_reached'],
     "VerticalCREnv-v0": ['total_intrusions', 'final_altitude'],
     "DescentEnv-v0": ['final_altitude'],
     "MergeEnv-v0": ['faf_reach', 'average_drift', 'total_intrusions']
@@ -44,7 +46,7 @@ keywords_mapping = {
 # all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0"]
 # all_envs = ["VerticalCREnv-v0"]
 #all_envs = ["SectorCREnv-v0","HorizontalCREnv-v0","StaticObstacleEnv-v0","PlanWaypointEnv-v0","VerticalCREnv-v0"]
-all_envs = ["DescentEnv-v0", "VerticalCREnv-v0", "StaticObstacleEnv-v0", "MergeEnv-v0", "StaticObstacleEnv-v1"]
+all_envs = ["DescentEnv-v0", "VerticalCREnv-v0", "StaticObstacleEnv-v0", "MergeEnv-v0", "StaticObstacleEnv-v1", "StaticObstacleEnv-v2"]
 algorithms = [SAC, PPO, TD3, DDPG, A2C]
 #algorithms = [SAC, TD3]
 
@@ -55,7 +57,7 @@ def make_env():
     if args.workdir:
         os.makedirs(args.workdir, exist_ok=True)
     # ...existing code...
-    if env_name in ["StaticObstacleEnv-v0", "StaticObstacleEnv-v1", "VerticalCREnv-v0"]:
+    if env_name in ["StaticObstacleEnv-v0", "StaticObstacleEnv-v1", "StaticObstacleEnv-v2", "VerticalCREnv-v0"]:
         env = gym.make(env_name, render_mode=None)
     else:
         env = gym.make(env_name, render_mode=None, workdir=args.workdir)
@@ -129,8 +131,14 @@ if __name__ == "__main__":
             seed=args.model_seed,
             tensorboard_log=f"./logs/tensorboard/{env_name}/")
         
+        checkpoint_callback = CheckpointCallback(
+            save_freq=max(100_000 // max(1, args.num_cpu if args.make_vec_env else 1), 1), 
+            save_path=f"models/{args.jobid}/{env_name}/checkpoints/",
+            name_prefix=f"{env_name}_{str(algorithm.__name__)}_{suffix}_baseline"
+        )
+        
         try:
-            model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False)
+            model.learn(total_timesteps=int(args.total_timesteps), progress_bar=False, callback=checkpoint_callback)
         except KeyboardInterrupt:
             print("Training interrupted. Saving intermediate model...")
         finally:

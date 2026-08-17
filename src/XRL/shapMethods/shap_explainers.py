@@ -57,6 +57,45 @@ def runSafeStateExplainer(model, observation,safe_vals,default_baseline=None):
     #shap.plots.bar(shap_values)
     return shap_values
 
+def runV2SafeStateExplainer(model, observation, safe_vals, default_baseline=None):
+    # Total features: 3 waypoint features + 30 LiDAR rays = 33 features
+    M = 33
+    testX = np.array([np.arange(M)]) 
+
+    def cheat_masker(mask, X):
+        return [mask]
+
+    def custom_model_wrapper(X_batch):
+        total_evals = len(X_batch)
+        obs_batch = {k: np.tile(v, (total_evals, 1)) for k, v in observation.items()}
+        
+        for i, row_indices in enumerate(X_batch):
+            masked_indices = np.where(row_indices==0)[0]
+            if len(masked_indices) > 0:
+                # 0: distance, 1: cos_drift, 2: sin_drift, 3-32: lidar
+                if 0 in masked_indices:
+                    obs_batch["destination_waypoint_distance"][i, 0] = safe_vals["destination_waypoint_distance"]
+                if 1 in masked_indices:
+                    obs_batch["destination_waypoint_cos_drift"][i, 0] = safe_vals["destination_waypoint_cos_drift"]
+                if 2 in masked_indices:
+                    obs_batch["destination_waypoint_sin_drift"][i, 0] = safe_vals["destination_waypoint_sin_drift"]
+                
+                for j in range(30):
+                    if (3 + j) in masked_indices:
+                        obs_batch["lidar"][i, j] = safe_vals["lidar"][j]
+
+        pred, _ = model.predict(obs_batch, deterministic=True)
+        if default_baseline is not None:
+            for i, row_indices in enumerate(X_batch):
+                if np.sum(row_indices) == 0:
+                    pred[i] = default_baseline
+       
+        return np.array(pred)
+
+    explainer = shap.explainers.Permutation(custom_model_wrapper, cheat_masker)
+    shap_values = explainer(testX, max_evals=1000)
+    return shap_values
+
 
 def runBackgroundExplainer(model,observation,backgroundData,mapping:list,n_samples=50):
     # runs shap permutation explainer on the given observation

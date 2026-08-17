@@ -26,8 +26,12 @@ if __name__ == "__main__":
             total_reward += reward
             
             if terminated or truncated:
+                reason = "Reached Waypoint" if info.get('waypoint_reached', 0) == 1 else \
+                         "Crashed" if info.get('crashed', 0) == 1 else \
+                         "Truncated (Time limit)" if truncated else \
+                         "Out of Bounds"
                 break
                 
-        print(f"Episode {i+1} reward: {total_reward}")
+        print(f"Episode {i+1} total reward: {total_reward:.2f} | Result: {reason} | Info: {info}")
 
     env.close()

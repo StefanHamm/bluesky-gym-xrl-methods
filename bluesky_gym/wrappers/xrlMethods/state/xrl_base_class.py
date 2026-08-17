@@ -141,18 +141,42 @@ class xrlBaseWrapper(gym.Wrapper):
         # This method should should convert the lat/lon to x/y positions on the pygame canvas
         # Since it depends on the specific environment and rendering setup, we leave it unimplemented here.
         # The user should implement this method in the subclass.
-        
         raise NotImplementedError("This method needs to be implemented in the subclass.")
         
+    def _save_env_state(self):
+        state = {}
+        for attr in ['wpt_reach', 'last_waypoint_distance', 'waypoint_reached', 'crashed', 'total_reward', 'total_intrusions']:
+            if hasattr(self.unwrapped, attr):
+                val = getattr(self.unwrapped, attr)
+                if isinstance(val, list):
+                    state[attr] = val.copy()
+                elif isinstance(val, np.ndarray):
+                    state[attr] = val.copy()
+                else:
+                    state[attr] = val
+        return state
+        
+    def _restore_env_state(self, state):
+        for attr, val in state.items():
+            if hasattr(self.unwrapped, attr):
+                if isinstance(val, list):
+                    setattr(self.unwrapped, attr, val.copy())
+                elif isinstance(val, np.ndarray):
+                    setattr(self.unwrapped, attr, val.copy())
+                else:
+                    setattr(self.unwrapped, attr, val)
+
     def _calculate_projected_path(self,safe=False,has_waypoints=False):
         
         prev_state = self._save_traffic_state()
+        prev_env_state = self._save_env_state()
         if safe:
             self.safe_action_path = []
         else:
             self.path_coordinates = []
         self._simulate_rollout(safe,has_waypoints)
         self._restore_traffic_state(prev_state)
+        self._restore_env_state(prev_env_state)
         self.unwrapped._get_obs() #reset internal obs state
 
     def _simulate_rollout(self,safe=False,has_waypoints=False):
@@ -188,8 +212,14 @@ class xrlBaseWrapper(gym.Wrapper):
                 for distance in self.unwrapped.waypoint_distance:
                     if distance < self.distance_margin and self.unwrapped.wpt_reach[index] != 1:
                         return
-            reward, terminated = self.unwrapped._get_reward()
-            if terminated:
+            reward_ret = self.unwrapped._get_reward()
+            if len(reward_ret) == 2:
+                reward, terminated = reward_ret
+                done = False
+            else:
+                reward, done, terminated = reward_ret
+                
+            if terminated or done:
                 return
             
     def _draw_path(self,canvas,color,path_coordinates,skip_first=False):
