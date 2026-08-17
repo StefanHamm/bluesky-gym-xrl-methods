@@ -1,13 +1,61 @@
-# BlueSky-Gym
-A gymnasium style library for standardized Reinforcement Learning research in Air Traffic Management developed in Python.
+# BlueSky-Gym + XRL
+A gymnasium style library for standardized Reinforcement Learning research in Air Traffic Management developed in Python, featuring native **Explainable RL (XRL)** capabilities.
 Built on [BlueSky](https://github.com/TUDelft-CNS-ATM/bluesky) and The Farama Foundation's [Gymnasium](https://github.com/Farama-Foundation/Gymnasium)
 
 <p align="center">
-    <img src="https://github.com/user-attachments/assets/6ae83579-78af-4cb7-8096-3a10af54a5c5" width=50% height=50%><br/>
-    <em>An example trained agent attempting the merge environment available in BlueSky-Gym.</em>
+    <img src="docs/media/StaticObstacleEnv-v2/xai_policy.gif" width=50% height=50%><br/>
+    <em>Dynamic feature attribution mapped directly to obstacle polygons and LiDAR rays using XRL.</em>
 </p>
 
 For a complete list of the currently available environments click [here](bluesky_gym/envs/README.md)
+
+## Explainable RL (XAI) in BlueSky-Gym
+
+BlueSky-Gym supports native post-hoc Explainable RL capabilities designed specifically to map deep RL policies to the operational context of air traffic control.
+
+### Implementation Sketch
+The explainability artifacts are implemented via the Gymnasium wrapper API (`bluesky_gym.wrappers.xrlMethods`). 
+- **Wrapper Architecture:** Wrappers (e.g., `SaliencyStaticObstacleControl`) intercept the environment's `step()` and `render()` methods.
+- **SHAP Integration:** At each step, a `shap.explainers.Permutation` explainer evaluates the RL model's policy. By masking observation features, it calculates the marginal contribution of individual features (like LiDAR rays or aircraft states) to the chosen action.
+- **Dynamic Rendering:** The wrapper dynamically maps computed SHAP values onto the PyGame canvas. For instance, in `StaticObstacleEnv-v2`, individual LiDAR ray SHAP values are grouped by obstacle to dynamically color polygons (red/blue) based on their influence over the agent's steering.
+
+### Usage
+
+**Option A: Using the CLI (Quickstart)**
+You can easily launch a visualization session using the provided CLI tool:
+```bash
+python src/XRL/xrl.py \
+    --env StaticObstacleEnv-v2 \
+    --method shap_safe_state \
+    --model_suffix vecEnvLogs \
+    --algo SAC
+```
+
+**Option B: Python API Integration**
+To integrate XRL natively into your own loop, simply wrap your environment:
+```python
+import gymnasium as gym
+import bluesky_gym
+from bluesky_gym.wrappers.xrlMethods.state.saliency.static_obstacle_envV2_saliency import SaliencyStaticObstacleControl
+
+bluesky_gym.register_envs()
+
+# 1. Initialize the base environment
+env = gym.make('StaticObstacleEnv-v2', render_mode='human', debug_lidar=True)
+
+# 2. Wrap it with the XAI Saliency wrapper
+env = SaliencyStaticObstacleControl(env)
+
+obs, info = env.reset()
+done = truncated = False
+while not (done or truncated):
+    # Pass pre-computed shap values to the step if needed, or let the wrapper compute them
+    action = ... # Your agent code here
+    obs, reward, done, truncated, info = env.step(action)
+```
+
+### XAI Contributors
+The Explainable RL (XAI) module and visualization wrappers were contributed by the user and Stefan Hamm.
 
 ## Installation
 
@@ -51,6 +99,7 @@ model.save()
 ```
 
 For more info, please refer to the [workshop slides](https://docs.google.com/presentation/d/1Jpwdrx__OMdgHWtQ1yCVQyxsdDFk2ieX/edit?usp=drive_link&ouid=109800667545002770848&rtpof=true&sd=true) that provide additional information on BlueSky-Gym and how to use it for your own needs.
+
 
 ## Contributing and Assistance
 If you would like to contribute to BlueSky-Gym or need assistance in setting up or creating your own environments, do not hesitate to open an issue or reach out to one of us via the BlueSky-Gym [Discord](https://discord.gg/s7CdxcSX).
