@@ -55,7 +55,7 @@ while not (done or truncated):
 ```
 
 ### XAI Contributors
-The Explainable RL (XAI) module and visualization wrappers were contributed by the user and Stefan Hamm.
+The Explainable RL (XAI) module and visualization wrappers were contributed by Stefan Hamm and Alexander Beiser.
 
 ## Installation
 
@@ -118,5 +118,5 @@ If you use BlueSky-Gym in your work, please cite it using:
 }
 ```
 
-List of publications & preprints using `BlueSky-Gym` (please open a pull request to add missing entries):
-*   _missing entry_
+List of publications & preprints using `BlueSky-Gym` XAI:
+*   Will be added in the future
