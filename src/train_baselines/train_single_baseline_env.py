@@ -1,6 +1,13 @@
-"""
-This file trains a basline model using a single environment and a specified algorithm.
-"""
+import typing
+try:
+    import cv2
+except ImportError:
+    pass
+import multiprocessing as mp
+try:
+    mp.set_start_method('fork', force=True)
+except RuntimeError:
+    pass
 
 import gymnasium as gym
 from stable_baselines3 import SAC,PPO,TD3,DDPG,A2C
@@ -116,7 +123,7 @@ if __name__ == "__main__":
     if TRAIN:
         if args.make_vec_env:
             print("Using vectorized environment")
-            env = make_vec_env(make_env,seed=args.env_seed, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv)
+            env = make_vec_env(make_env, seed=args.env_seed, n_envs=args.num_cpu, vec_env_cls=SubprocVecEnv, vec_env_kwargs=dict(start_method='fork'))
             env = VecMonitor(env, filename=log_file_path,info_keywords=keywords_mapping[env_name])
         else:
             print("Using single environment")
